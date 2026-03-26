@@ -1,0 +1,12 @@
+# Forge runtime state (per-user, not project config)
+.claude/forge/
+
+# Per-user local config from /remember
+.claude/CLAUDE.local.md
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
