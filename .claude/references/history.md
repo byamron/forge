@@ -260,3 +260,5 @@ Key changes:
 **Flow:** The unified command runs in order: (1) check for pending proposals, (2) run Phase A scripts, (3) present status summary, (4) present pattern findings, (5) merge into proposals, (6) present each proposal one at a time with approve/modify/skip/never options, (7) apply approved proposals via artifact-generator agent, (8) record decisions for feedback loop.
 
 **Key constraint preserved:** The plugin always asks explicit permission before writing any files. Proposals are presented with full evidence and a preview of what would be generated. The user must approve each one individually.
+
+**AskUserQuestion integration:** The skill instructs Claude to use the `AskUserQuestion` tool (Claude Agent SDK built-in) to present structured multiple-choice options for each proposal (Approve/Modify/Skip/Never). This provides a cleaner UI than free-text conversation when available. Falls back to conversational asking if the tool isn't available. Limitation: 1-4 questions with 2-4 options each, not available in subagents.

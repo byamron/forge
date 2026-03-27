@@ -104,11 +104,14 @@ Display the exact artifact content that would be generated in a code block. Stat
 
 ### 6c. Ask for a decision
 
-Present these options clearly and wait for the user's response:
-- **approve** — Generate and place the artifact
-- **modify** — Tell me what to change first
-- **skip** — Keep for next time
-- **never** — Dismiss permanently
+Use the `AskUserQuestion` tool to present a structured choice. The question should summarize the proposal (e.g., "Create a '/dev-server' skill from 11 repeated prompts?") with these options:
+
+- **Approve** (description: "Generate and place the artifact now")
+- **Modify** (description: "I'll tell you what to change first")
+- **Skip** (description: "Keep for next time")
+- **Never** (description: "Dismiss permanently — don't suggest this again")
+
+If `AskUserQuestion` is not available, fall back to presenting the options conversationally and waiting for the user's response.
 
 **Always wait for explicit user approval before writing any files.** Never auto-apply proposals.
 
