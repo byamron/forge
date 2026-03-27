@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""Read Forge settings and output current configuration as JSON.
+
+Settings file: <project>/.claude/forge/settings.json
+Falls back to defaults if the file doesn't exist or is invalid.
+
+Usage:
+    python3 read-settings.py [--project-root /path]
+"""
+
+import json
+import sys
+from pathlib import Path
+
+DEFAULTS = {
+    "nudge_level": "balanced",
+}
+
+LEVEL_DESCRIPTIONS = {
+    "quiet": "No automatic nudges. Forge only runs when you invoke /forge.",
+    "balanced": "Nudge on session start after 5+ new unanalyzed sessions.",
+    "eager": "Nudge on session start after 2+ new unanalyzed sessions.",
+}
+
+LEVEL_THRESHOLDS = {
+    "quiet": None,
+    "balanced": 5,
+    "eager": 2,
+}
+
+
+def find_project_root() -> Path:
+    current = Path.cwd().resolve()
+    while current != current.parent:
+        if (current / ".git").exists() or (current / ".claude").exists():
+            return current
+        current = current.parent
+    return Path.cwd().resolve()
+
+
+def load_settings(project_root: Path) -> dict:
+    settings_path = project_root / ".claude" / "forge" / "settings.json"
+    settings = dict(DEFAULTS)
+    if settings_path.is_file():
+        try:
+            with open(settings_path, "r") as f:
+                user = json.load(f)
+            if isinstance(user, dict):
+                for k, v in user.items():
+                    if k in DEFAULTS:
+                        settings[k] = v
+        except (json.JSONDecodeError, OSError):
+            pass
+    return settings
+
+
+def main():
+    root = find_project_root()
+    settings = load_settings(root)
+    level = settings.get("nudge_level", "balanced")
+
+    # Validate level
+    if level not in LEVEL_DESCRIPTIONS:
+        level = "balanced"
+
+    output = {
+        "nudge_level": level,
+        "nudge_level_description": LEVEL_DESCRIPTIONS[level],
+        "session_threshold": LEVEL_THRESHOLDS[level],
+        "all_levels": {
+            name: {"description": desc, "session_threshold": LEVEL_THRESHOLDS[name]}
+            for name, desc in LEVEL_DESCRIPTIONS.items()
+        },
+        "settings_path": str(root / ".claude" / "forge" / "settings.json"),
+    }
+
+    json.dump(output, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+
+
+if __name__ == "__main__":
+    main()

@@ -12,7 +12,7 @@ The product spec is at `.context/attachments/forge-spec.md`. The implementation 
 
 ## Architecture
 
-- **Skills** (`forge/skills/*/SKILL.md`): User-facing commands — `/forge:status`, `/forge:analyze`, `/forge:optimize`
+- **Skills** (`forge/skills/*/SKILL.md`): User-facing commands — `/forge:status`, `/forge:analyze`, `/forge:optimize`, `/forge:settings`
 - **Agents** (`forge/agents/*.md`): Subagents — `session-analyzer` (Phase B confirmation), `artifact-generator` (creates artifacts)
 - **Scripts** (`forge/scripts/*.py`): Zero-token Phase A analysis — `analyze-config.py`, `analyze-transcripts.py`, `analyze-memory.py`
 - **Hooks** (`forge/hooks/hooks.json`): SessionEnd hook for session tracking

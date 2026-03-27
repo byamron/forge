@@ -142,3 +142,41 @@ Also updated the SessionEnd hook (`log-session.sh`) to maintain a global repo in
 **Key finding:** Claude Code project directory names are NOT hashed — they're the filesystem path with `/` replaced by `-` (e.g., `-Users-ben-conductor-workspaces-forge-salvador`). Path reconstruction is ambiguous when directory names contain hyphens (e.g., `portfolio-site`), solved with a greedy left-to-right algorithm that checks filesystem existence at each step.
 
 **Results:** portfolio-site: 112 dirs, 127 transcripts. PriorityAppXcode: 58 dirs, 75 transcripts. All under 1 second.
+
+---
+
+## 2026-03-26: Settings system and nudge levels
+
+**Decision:** Added a settings system (`/forge:settings` skill + `settings.json` file) with three predefined nudge levels: quiet (never), balanced (after 5+ sessions, default), and eager (after 2+ sessions). Removed the Stop hook for nudges since users aren't present to read them — nudges now happen on session start via a CLAUDE.md rule.
+
+**Why:** The primary user works in Conductor with many short-lived worktrees. Nudges at session end are wasted (terminal is closing). Session start is when the user is present and engaged. The settings system exists primarily to prevent annoying nudges from turning users off — conservative defaults with an escape hatch.
+
+**Alternatives considered:**
+- Manual JSON editing: defeats the purpose of a plugin that reduces configuration overhead.
+- Per-setting granular controls: overengineered for three levels. Predefined levels are simpler.
+- No settings at all: nudge frequency is the one thing that genuinely needs to be configurable per user.
+
+---
+
+## 2026-03-26: Smart conversation-pair analyzer with feedback loop
+
+**Decision:** Rewrote the transcript correction detection from scratch. The old approach scanned user messages in isolation with regex patterns (e.g., "does this message contain 'no' or 'wrong'?") and grouped by raw string similarity. The new approach analyzes *conversation pairs* — what the assistant did, then how the user responded — and classifies each response as corrective, confirmatory, new_instruction, or followup.
+
+Key changes:
+1. **Conversation pair analysis.** Each detection includes the assistant's preceding action (tool uses, files touched, text output). A message like "no, use snake_case" is only classified as corrective if it follows an action and references the action's context. This eliminates false positives from conversational "no" usage.
+
+2. **Graduated scoring.** Corrections have a strength score (0.0-1.0) based on keyword intensity, action reference, and imperative tone. "I told you to use snake_case" scores higher than "actually, let's try snake_case."
+
+3. **Intra-session weighting.** If Claude gets corrected 5 times for the same thing in one session, that scores 9.5 (weighted: 1.0 + 1.5 + 2.0 + 2.5 + 2.5), not 5.0. This reflects that repeated in-session corrections are a stronger signal than isolated ones.
+
+4. **Theme extraction via TF-IDF + Jaccard.** Replaces SequenceMatcher with tokenized word overlap. "use snake_case for variables" and "variable names should be snake case" now group together because they share key terms, not because they have similar character sequences.
+
+5. **Feedback loop.** Stores outcomes (approved/dismissed/suppressed) in `~/.claude/forge/analyzer-stats.json`. Computes precision rates per category and adjusts confidence thresholds: poor historical precision raises the bar for future proposals, good precision lowers it. Permanently suppressed themes are never re-proposed.
+
+6. **Auto-generated message filtering.** Context continuation summaries ("continued from a previous conversation"), command invocations (`<command-name>`), and task notifications are filtered from analysis. These are framework-generated, not user corrections.
+
+**Why:** Testing against real data revealed that the old regex approach produced almost entirely false positives. On 781 conversation pairs from portfolio-site sessions, the old approach found dozens of "corrections" that were actually design requests ("make X 400 instead of 300"). The new conversation-pair approach correctly classified these as new_instruction (no preceding assistant action to correct) and identified only genuine behavioral corrections.
+
+**Performance:** portfolio-site (50 sessions, 782 pairs): 1.05s. PriorityAppXcode (50 sessions, 730 pairs): 1.37s. Well within the 3-second budget.
+
+**Limitation noted for roadmap:** The repeated prompts detector finds "start a dev server" (11 sessions) and "fix" (4 sessions) as genuine skill candidates. But correction detection finds few patterns because the test projects have mostly design-iteration conversations, not repeated coding corrections. More diverse test data needed. Artifact lifecycle/decay detection flagged as next implementation priority.
