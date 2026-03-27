@@ -167,9 +167,9 @@ Give a brief summary:
 - How many were dismissed
 - If artifacts were created, remind the user to test them
 
-### Health notes
+### Context health
 
-After the proposal summary, show a brief **health notes** section for informational items that didn't warrant proposals. Use the config audit data:
+After the proposal summary, show a brief **health notes** section for informational context health items that didn't warrant proposals. Use the config audit data:
 
 ```
 Health: CLAUDE.md is 43 lines (under 150 budget). 3 rules, 2 skills, 0 hooks, 0 agents.
