@@ -415,18 +415,20 @@ def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, An
     """
     # First, ensure analysis cache is fresh
     statuses = update_cache(root, plugin_root)
+    any_updated = any(s == "updated" for s in statuses.values())
 
-    # Check if we have cached proposals
+    # Return cached proposals only if no analysis was refreshed
     proposals_path = cache_dir(root) / "proposals.json"
-    try:
-        proposals = json.loads(
-            proposals_path.read_text(encoding="utf-8")
-        )
-        if isinstance(proposals, dict) and "proposals" in proposals:
-            proposals["cache_status"] = statuses
-            return proposals
-    except (OSError, json.JSONDecodeError):
-        pass
+    if not any_updated:
+        try:
+            proposals = json.loads(
+                proposals_path.read_text(encoding="utf-8")
+            )
+            if isinstance(proposals, dict) and "proposals" in proposals:
+                proposals["cache_status"] = statuses
+                return proposals
+        except (OSError, json.JSONDecodeError):
+            pass
 
     # Build proposals fresh
     _build_proposals_from_cache(root, plugin_root)

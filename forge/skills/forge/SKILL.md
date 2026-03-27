@@ -122,7 +122,9 @@ For **modified** proposals: ask what the user wants to change, adjust the conten
 After all artifacts are written, run a **single command** to handle all bookkeeping (pending.json, applied.json, dismissed.json, analyzer stats):
 
 ```bash
-echo '<JSON>' | python3 "<FORGE_ROOT>/scripts/finalize-proposals.py" --project-root "$(pwd)"
+python3 "<FORGE_ROOT>/scripts/finalize-proposals.py" --project-root "$(pwd)" <<'FORGE_EOF'
+<JSON>
+FORGE_EOF
 ```
 
 Replace `<FORGE_ROOT>` with the actual path from Step 1.

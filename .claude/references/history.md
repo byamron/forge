@@ -300,3 +300,19 @@ Key changes:
 **Alternatives considered:**
 - Sandboxing via containerization — overkill for a Claude Code plugin; the permission model (disallowedTools, user approval gates) is the right level of isolation.
 - Removing the SessionEnd hook entirely — too aggressive; the hook is useful and the injection was fixable.
+
+---
+
+## 2026-03-27: Review fixes — shell safety, stale cache, cross-project leakage
+
+**Decision:** Four fixes from code review of the `forge-ux-improvements` branch:
+
+1. **Shell injection in finalize command.** The `/forge` skill instructed the LLM to run `echo '<JSON>' | python3 finalize-proposals.py` where the JSON contained user-derived text (evidence_summary, description from transcript analysis). Single quotes in user messages (e.g., "don't") would break the shell quoting. Fixed by replacing `echo` with a heredoc using a single-quoted delimiter (`<<'FORGE_EOF'`), which prevents all shell expansion.
+
+2. **Stale proposals after cache refresh.** `get_proposals()` called `update_cache()` which could re-run analysis scripts, but then returned a pre-existing `proposals.json` without checking if analysis was refreshed. Fixed by checking if any analysis status was "updated" before returning cached proposals.
+
+3. **Cross-project transcript leakage in workspace-prefix matching.** Strategy 4's prefix-matching had two gaps: (a) candidate directories with no git remote bypassed verification entirely, (b) when the current project had no remote, all prefix-matched dirs were accepted. Fixed by requiring `current_remote` to be set for prefix matching, and using a `verified` flag that only accepts candidates on positive remote match.
+
+4. **Generated ESLint hook violated security rules.** `_generate_hook_content()` produced an ESLint command with `2>/dev/null || echo "..."`, violating the security rule against chained commands and redirects in hooks. Fixed by stripping to a clean single invocation.
+
+**Why:** Issues 1 and 3 are security fixes (shell injection, data isolation). Issue 2 is a correctness bug (users see outdated proposals). Issue 4 is a policy violation in generated artifacts.

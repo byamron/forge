@@ -157,9 +157,8 @@ def _generate_hook_content(gap: Dict) -> str:
         command = f'npx prettier --write "$CLAUDE_TOOL_INPUT_FILE_PATH"'
     elif linter == "eslint":
         command = (
-            f'npx eslint --no-warn-ignored --quiet '
-            f'--max-warnings 0 "$CLAUDE_FILE_PATHS" 2>/dev/null || '
-            f'echo "ESLint issues found in edited file."'
+            'npx eslint --no-warn-ignored --quiet '
+            '--max-warnings 0 "$CLAUDE_FILE_PATHS"'
         )
     else:
         command = f'{linter} "$CLAUDE_TOOL_INPUT_FILE_PATH"'

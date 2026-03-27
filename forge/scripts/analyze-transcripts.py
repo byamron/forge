@@ -454,9 +454,8 @@ def find_all_project_session_dirs(project_root: Path) -> List[Path]:
                 parent_encoded = _encode_path_as_project_dir(str(parent))
                 workspace_prefixes.add(parent_encoded)
 
-        if workspace_prefixes:
-            norm_remote = (current_remote.rstrip("/").removesuffix(".git").lower()
-                          if current_remote else None)
+        if workspace_prefixes and current_remote:
+            norm_remote = current_remote.rstrip("/").removesuffix(".git").lower()
             for d in claude_projects.iterdir():
                 if not d.is_dir() or d.name in matched_dirs:
                     continue
@@ -465,15 +464,16 @@ def find_all_project_session_dirs(project_root: Path) -> List[Path]:
                         # Verify git remote matches before accepting.
                         # Without this, sibling projects in the same
                         # workspace directory would leak in.
-                        if norm_remote:
-                            decoded_path = _decode_project_dir(d.name)
-                            if Path(decoded_path).is_dir():
-                                remote = _get_git_remote(decoded_path)
-                                if remote:
-                                    norm = remote.rstrip("/").removesuffix(".git").lower()
-                                    if norm != norm_remote:
-                                        break  # Different repo — skip
-                        matched_dirs.add(d.name)
+                        verified = False
+                        decoded_path = _decode_project_dir(d.name)
+                        if Path(decoded_path).is_dir():
+                            remote = _get_git_remote(decoded_path)
+                            if remote:
+                                norm = remote.rstrip("/").removesuffix(".git").lower()
+                                if norm == norm_remote:
+                                    verified = True
+                        if verified:
+                            matched_dirs.add(d.name)
                         break
 
     # Strategy 5: Git remote scan — check dirs whose paths still exist on disk.
