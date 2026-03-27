@@ -431,27 +431,15 @@ def find_all_project_session_dirs(project_root: Path) -> List[Path]:
                     if d.is_dir():
                         matched_dirs.add(name)
 
-    # Strategy 4: Git remote scan — check dirs whose paths still exist on disk
-    if current_remote:
-        norm_remote = current_remote.rstrip("/").removesuffix(".git").lower()
-        for d in claude_projects.iterdir():
-            if not d.is_dir() or d.name in matched_dirs:
-                continue
-            decoded_path = _decode_project_dir(d.name)
-            if Path(decoded_path).is_dir():
-                remote = _get_git_remote(decoded_path)
-                if remote:
-                    norm = remote.rstrip("/").removesuffix(".git").lower()
-                    if norm == norm_remote:
-                        matched_dirs.add(d.name)
-
-    # Strategy 5: Workspace-prefix heuristic for deleted worktrees.
-    # From confirmed worktree matches (strategies 2-4), decode the path and
+    # Strategy 4: Workspace-prefix heuristic for deleted worktrees.
+    # From confirmed worktree matches (strategies 2-3), decode the path and
     # use the parent directory as a workspace prefix. Other dirs with the
     # same prefix are likely worktrees of the same repo that were cleaned up.
     # Only uses matches OTHER than the exact current-project match (strategy 1)
     # to avoid using the main checkout's parent dir (which may contain
     # unrelated repos) as a false workspace root.
+    # Runs BEFORE git remote scan (strategy 5) because it's fast (string
+    # prefix matching, no subprocesses) and catches most worktree dirs.
     exact_encoded = _encode_path_as_project_dir(str(project_root))
     worktree_matches = {m for m in matched_dirs if m != exact_encoded}
     if worktree_matches:
@@ -471,6 +459,23 @@ def find_all_project_session_dirs(project_root: Path) -> List[Path]:
                     if d.name.startswith(prefix + "-"):
                         matched_dirs.add(d.name)
                         break
+
+    # Strategy 5: Git remote scan — check dirs whose paths still exist on disk.
+    # This is expensive (spawns a subprocess per directory), so only run if
+    # strategies 1-4 found fewer than 2 matches (meaning we likely missed
+    # worktrees that aren't in a shared workspace directory).
+    if current_remote and len(matched_dirs) < 2:
+        norm_remote = current_remote.rstrip("/").removesuffix(".git").lower()
+        for d in claude_projects.iterdir():
+            if not d.is_dir() or d.name in matched_dirs:
+                continue
+            decoded_path = _decode_project_dir(d.name)
+            if Path(decoded_path).is_dir():
+                remote = _get_git_remote(decoded_path)
+                if remote:
+                    norm = remote.rstrip("/").removesuffix(".git").lower()
+                    if norm == norm_remote:
+                        matched_dirs.add(d.name)
 
     # Convert to Path objects, sorted by most recent modification time
     result_dirs = []
