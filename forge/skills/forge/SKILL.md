@@ -15,12 +15,14 @@ You are running Forge, the Claude Code infrastructure optimizer. Follow these st
 Run a single command that resolves the plugin, runs any stale analysis, and returns ready-to-present proposals:
 
 ```bash
-FORGE_ROOT="${CLAUDE_PLUGIN_ROOT}"; if [ -z "$FORGE_ROOT" ]; then FORGE_ROOT=$(python3 -c "import json,pathlib; data=json.loads(pathlib.Path.home().joinpath('.claude/plugins/installed_plugins.json').read_text()); print(next((v[0]['installPath'] for k,v in data.get('plugins',{}).items() if k.startswith('forge@')), ''))" 2>/dev/null); fi; if [ -z "$FORGE_ROOT" ]; then echo 'ERROR: Could not locate Forge plugin'; exit 1; fi; python3 "$FORGE_ROOT/scripts/cache-manager.py" --proposals --plugin-root "$FORGE_ROOT"
+FORGE_ROOT="${CLAUDE_PLUGIN_ROOT}"; if [ -z "$FORGE_ROOT" ]; then FORGE_ROOT=$(python3 -c "import json,pathlib; data=json.loads(pathlib.Path.home().joinpath('.claude/plugins/installed_plugins.json').read_text()); print(next((v[0]['installPath'] for k,v in data.get('plugins',{}).items() if k.startswith('forge@')), ''))" 2>/dev/null); fi; if [ -z "$FORGE_ROOT" ]; then echo 'ERROR: Could not locate Forge plugin'; exit 1; fi; echo "FORGE_ROOT=$FORGE_ROOT"; python3 "$FORGE_ROOT/scripts/cache-manager.py" --proposals --plugin-root "$FORGE_ROOT"
 ```
 
 If the output starts with `ERROR`, tell the user the Forge plugin scripts could not be located and stop.
 
-The output is a JSON object with:
+**Save the `FORGE_ROOT=...` path from the first line of output** — you will need it in Steps 3 and 4 for reading reference files and running the finalize script.
+
+The rest of the output is a JSON object with:
 - `proposals`: Array of proposals, each with `id`, `type`, `impact`, `description`, `evidence_summary`, `suggested_content`, `suggested_path`, `status`
 - `context_health`: Summary of context budget and artifact counts
 - `stats`: How many sessions were analyzed, candidates found, etc.
@@ -77,57 +79,56 @@ After receiving decisions, show the draft artifact content (in a code block with
 
 **Always wait for explicit user approval before writing any files.** Never auto-apply proposals.
 
-## Step 3: Apply approved proposals
+## Step 3: Generate and apply approved proposals
 
-For each approved proposal:
+**Before generating any artifacts**, read the artifact templates and best practices once (using the `FORGE_ROOT` path from Step 1):
+- `<FORGE_ROOT>/references/artifact-templates.md`
+- `<FORGE_ROOT>/references/anthropic-best-practices.md`
 
-0. **Validate the artifact path before writing.** The `suggested_path` must satisfy ALL of these:
-   - It is a relative path (does not start with `/` or `~`)
-   - It resolves to a location within the project root (no `..` traversal that escapes)
-   - It targets only allowed locations: `CLAUDE.md`, `.claude/rules/`, `.claude/skills/`, `.claude/agents/`, `.claude/references/`, `.claude/commands/` (for legacy migration reads), `.claude/settings.json`, or `.claude/forge/`
-   - If any path fails validation, **skip the proposal**, warn the user, and mark it as skipped
+Then for all approved proposals:
 
-1. Spawn the `artifact-generator` agent with the proposal details (type, description, suggested_content, suggested_path). The agent produces the final artifact content.
-2. Write the artifact to the specified path:
-   - **CLAUDE.md entries**: Append to `CLAUDE.md` (create if needed). Warn if over 200 lines after.
-   - **Rules**: Write to `.claude/rules/<name>.md` (create directory if needed)
-   - **Hooks**: Read existing `.claude/settings.json`, merge the new hook into the appropriate event array (e.g., add a new PostToolUse entry alongside existing ones). Create the file if it doesn't exist. Preserve all existing hooks — never overwrite.
-   - **Skills**: Create `.claude/skills/<name>/SKILL.md` (create directory structure)
-   - **Skill updates**: Edit the existing file at `suggested_path`. Show a diff of what changed. If the existing artifact is a legacy command (`.claude/commands/*.md`), migrate it to `.claude/skills/<name>/SKILL.md` and delete the old file.
-   - **Agents**: Write to `.claude/agents/<name>.md`
-   - **Reference docs**: Write to `.claude/references/<name>.md`. Add a pointer line to CLAUDE.md: `For detailed X conventions, see .claude/references/Y.md`
-   - All artifacts go to project-level (`.claude/`), never user-level (`~/.claude/`).
-3. Update the proposal's status to `"applied"` in pending.json
-4. Record in `.claude/forge/history/applied.json`
-5. Update feedback stats:
-   ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/update-analyzer-stats.py" --category <category> --outcome approved --theme-hash <proposal-id>
-   ```
+### 3a. Validate paths
+
+For each approved proposal, validate `suggested_path`:
+- Must be a relative path (no `/` or `~` prefix)
+- Must resolve within the project root (no `..` escape)
+- Must target allowed locations: `CLAUDE.md`, `.claude/rules/`, `.claude/skills/`, `.claude/agents/`, `.claude/references/`, `.claude/settings.json`, or `.claude/forge/`
+- Skip any proposal that fails validation and warn the user
+
+### 3b. Create directories in one batch
+
+Run a single `mkdir -p` for all needed directories:
+```bash
+mkdir -p .claude/rules .claude/skills/<name1> .claude/skills/<name2> ...
+```
+
+### 3c. Generate and write artifacts
+
+Generate the artifact content yourself following the templates from the reference files. Do **not** spawn the artifact-generator agent. Write each artifact:
+- **CLAUDE.md entries**: Append to `CLAUDE.md` (create if needed). Warn if over 200 lines after.
+- **Rules**: Write to `.claude/rules/<name>.md`
+- **Hooks**: Read existing `.claude/settings.json`, merge the new hook into the appropriate event array. Preserve all existing hooks — never overwrite.
+- **Skills**: Write to `.claude/skills/<name>/SKILL.md`
+- **Skill updates**: Edit the existing file at `suggested_path`. If legacy command (`.claude/commands/*.md`), migrate to `.claude/skills/<name>/SKILL.md` and delete the old file.
+- **Agents**: Write to `.claude/agents/<name>.md`
+- **Reference docs**: Write to `.claude/references/<name>.md`. Add a pointer to CLAUDE.md.
+- All artifacts go to project-level (`.claude/`), never user-level (`~/.claude/`).
 
 For **modified** proposals: ask what the user wants to change, adjust the content, show the updated preview, then ask for approval again.
 
-For **skipped** proposals: leave status as `"pending"`.
+## Step 4: Finalize and summarize
 
-For **never** proposals:
-1. Update status to `"dismissed"` in pending.json
-2. Append to `.claude/forge/dismissed.json` with a timestamp
-3. Update feedback stats:
-   ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/update-analyzer-stats.py" --category <category> --outcome suppressed --theme-hash <proposal-id>
-   ```
+After all artifacts are written, run a **single command** to handle all bookkeeping (pending.json, applied.json, dismissed.json, analyzer stats):
 
-## Step 4: Save and summarize
-
-Only save proposals if there were any (skip the file write if there were no proposals to record).
-
-Before writing, tell the user: "Saving proposal records — this lets Forge remember what you've reviewed so it won't re-suggest dismissed items or lose skipped proposals between sessions."
-
-Write the full proposal list (with updated statuses) to `.claude/forge/proposals/pending.json`:
 ```bash
-mkdir -p .claude/forge/proposals
+echo '<JSON>' | python3 "<FORGE_ROOT>/scripts/finalize-proposals.py" --project-root "$(pwd)"
 ```
 
-Write the JSON array of all proposals. Applied proposals have `"status": "applied"`, dismissed have `"status": "dismissed"`, skipped keep `"status": "pending"`. This way, the next `/forge` run knows what's been handled.
+Replace `<FORGE_ROOT>` with the actual path from Step 1.
+
+Where `<JSON>` is a JSON object with:
+- `outcomes`: Array of `{"id": "<proposal-id>", "status": "applied|dismissed|pending", "type": "<proposal-type>"}` for every proposal
+- `all_proposals`: The full proposals array with updated statuses
 
 Give a brief summary:
 - How many proposals were approved and applied
