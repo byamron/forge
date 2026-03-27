@@ -142,3 +142,109 @@ Also updated the SessionEnd hook (`log-session.sh`) to maintain a global repo in
 **Key finding:** Claude Code project directory names are NOT hashed — they're the filesystem path with `/` replaced by `-` (e.g., `-Users-ben-conductor-workspaces-forge-salvador`). Path reconstruction is ambiguous when directory names contain hyphens (e.g., `portfolio-site`), solved with a greedy left-to-right algorithm that checks filesystem existence at each step.
 
 **Results:** portfolio-site: 112 dirs, 127 transcripts. PriorityAppXcode: 58 dirs, 75 transcripts. All under 1 second.
+
+---
+
+## 2026-03-26: Settings system and nudge levels
+
+**Decision:** Added a settings system (`/forge:settings` skill + `settings.json` file) with three predefined nudge levels: quiet (never), balanced (after 5+ sessions, default), and eager (after 2+ sessions). Removed the Stop hook for nudges since users aren't present to read them — nudges now happen on session start via a CLAUDE.md rule.
+
+**Why:** The primary user works in Conductor with many short-lived worktrees. Nudges at session end are wasted (terminal is closing). Session start is when the user is present and engaged. The settings system exists primarily to prevent annoying nudges from turning users off — conservative defaults with an escape hatch.
+
+**Alternatives considered:**
+- Manual JSON editing: defeats the purpose of a plugin that reduces configuration overhead.
+- Per-setting granular controls: overengineered for three levels. Predefined levels are simpler.
+- No settings at all: nudge frequency is the one thing that genuinely needs to be configurable per user.
+
+---
+
+## 2026-03-26: Smart conversation-pair analyzer with feedback loop
+
+**Decision:** Rewrote the transcript correction detection from scratch. The old approach scanned user messages in isolation with regex patterns (e.g., "does this message contain 'no' or 'wrong'?") and grouped by raw string similarity. The new approach analyzes *conversation pairs* — what the assistant did, then how the user responded — and classifies each response as corrective, confirmatory, new_instruction, or followup.
+
+Key changes:
+1. **Conversation pair analysis.** Each detection includes the assistant's preceding action (tool uses, files touched, text output). A message like "no, use snake_case" is only classified as corrective if it follows an action and references the action's context. This eliminates false positives from conversational "no" usage.
+
+2. **Graduated scoring.** Corrections have a strength score (0.0-1.0) based on keyword intensity, action reference, and imperative tone. "I told you to use snake_case" scores higher than "actually, let's try snake_case."
+
+3. **Intra-session weighting.** If Claude gets corrected 5 times for the same thing in one session, that scores 9.5 (weighted: 1.0 + 1.5 + 2.0 + 2.5 + 2.5), not 5.0. This reflects that repeated in-session corrections are a stronger signal than isolated ones.
+
+4. **Theme extraction via TF-IDF + Jaccard.** Replaces SequenceMatcher with tokenized word overlap. "use snake_case for variables" and "variable names should be snake case" now group together because they share key terms, not because they have similar character sequences.
+
+5. **Feedback loop.** Stores outcomes (approved/dismissed/suppressed) in `~/.claude/forge/analyzer-stats.json`. Computes precision rates per category and adjusts confidence thresholds: poor historical precision raises the bar for future proposals, good precision lowers it. Permanently suppressed themes are never re-proposed.
+
+6. **Auto-generated message filtering.** Context continuation summaries ("continued from a previous conversation"), command invocations (`<command-name>`), and task notifications are filtered from analysis. These are framework-generated, not user corrections.
+
+**Why:** Testing against real data revealed that the old regex approach produced almost entirely false positives. On 781 conversation pairs from portfolio-site sessions, the old approach found dozens of "corrections" that were actually design requests ("make X 400 instead of 300"). The new conversation-pair approach correctly classified these as new_instruction (no preceding assistant action to correct) and identified only genuine behavioral corrections.
+
+**Performance:** portfolio-site (50 sessions, 782 pairs): 1.05s. PriorityAppXcode (50 sessions, 730 pairs): 1.37s. Well within the 3-second budget.
+
+**Limitation noted for roadmap:** The repeated prompts detector finds "start a dev server" (11 sessions) and "fix" (4 sessions) as genuine skill candidates. But correction detection finds few patterns because the test projects have mostly design-iteration conversations, not repeated coding corrections. More diverse test data needed. Artifact lifecycle/decay detection flagged as next implementation priority.
+
+---
+
+## 2026-03-27: LLM gap analysis — script vs. LLM pattern detection
+
+**Decision:** Ran LLM analysis on the same conversation pairs the Python script processes (portfolio-site: 10 sessions, PriorityAppXcode: 10 sessions) to measure what the script misses.
+
+**Key findings:**
+
+1. **0 corrections confirmed correct.** The LLM independently verified that the user's communication style is directive ("create a plan and implement"), not corrective ("no, do X instead"). The conversation-pair classifier is working correctly — the signal genuinely isn't there, not a false negative.
+
+2. **Repeated prompts are the strongest signal.** Both script and LLM agree. The script correctly identifies: "start dev server" (11x), "update docs + merge" (6x), "fix issues" (5x), "/push workflow" (4x), "/ship workflow" (3x). These are clear skill candidates.
+
+3. **LLM finds patterns the script can't detect:**
+   - **Contextual position**: "Start dev server" as a session opener vs. immediately after "Done — replaced asset" are different signals. The latter is a post-task workflow preference that should trigger proactive behavior, not just a skill.
+   - **Approval-gated deliberation**: User asks clarifying questions before greenlighting implementation. Can't be detected by keyword matching — the signal is the *absence* of "go ahead" until after back-and-forth.
+   - **State signals**: "xcode is closed" is an implicit preference about what commands are safe to run, volunteered as context. Requires semantic understanding.
+   - **Review → immediate action directive**: After code reviews, user always issues a single action directive without discussion. Suggests: present reviews concisely, wait for directive, don't ask clarifying questions.
+
+4. **What the script does that the LLM can't:** The script aggregates across 50+ sessions, handles cross-worktree discovery, scores themes with TF-IDF, and runs in <2 seconds. The LLM provides deeper analysis on individual pairs but can't scale to the full dataset affordably.
+
+**Conclusion:** The Python script and LLM are complementary, not competing. The script is the right first pass (zero-token, fast, cross-worktree). The LLM should be an optional second pass for ambiguous candidates or when the user opts in. Added Task 4.3 (LLM-Assisted Pattern Detection) to the roadmap.
+
+**Roadmap updated:** Reprioritized Phase 2 based on real data. Skill generation and artifact lifecycle are now the top priorities. Correction detection improvement deferred to Phase 3 (pending more diverse test data). Unified `/forge` command added as Phase 2 task. Contextual pattern detection (position-aware analysis) added as Phase 2 task.
+
+---
+
+## 2026-03-27: Analysis scope is per-project by default
+
+**Decision:** All Forge analysis is strictly scoped to the current project and its worktrees. Forge never reads transcripts from unrelated projects. Cross-project aggregation (Task 4.1) is a future opt-in setting only.
+
+**Why:** Privacy. Patterns from a private work project should not leak into suggestions for a personal project. The user may work across projects with different sensitivity levels, team ownership, or confidentiality requirements. Per-project scope is the safe default.
+
+**How this works today:** `analyze-transcripts.py` takes `--project-root` and uses the 5-strategy cross-worktree discovery to find all session dirs for *that specific repo*. It matches on git remote URL — so worktrees of the same repo are aggregated, but unrelated repos are never touched.
+
+**Future:** Cross-project aggregation could be valuable (e.g., "this user always wants snake_case in every project"). If added, it will be opt-in via `/forge:settings` with clear documentation about what data is shared across project boundaries.
+
+---
+
+## 2026-03-27: LLM replaces Phase B confirmation, not the script
+
+**Decision:** Replace the Phase B session-analyzer confirmation step with an LLM pass that analyzes raw conversation pairs for contextual patterns. The Python script stays as the data pipeline. The previous architecture (Script → LLM confirmation) is replaced by (Script + LLM → merged candidates).
+
+**Why:** Phase B confirmation is currently dead weight. The script's high-frequency findings (11x "start dev server") don't need LLM confirmation — frequency is sufficient evidence. And when the script finds 0 candidates (corrections, post-actions), Phase B has nothing to confirm. Meanwhile, the LLM gap analysis showed the LLM finds genuinely different patterns (contextual position, implicit preferences, approval gates) that the script can never detect. The LLM should be finding new patterns, not rubber-stamping the script's output.
+
+**Why not replace the script entirely:** The script handles cross-worktree discovery, JSONL parsing, and 50-session aggregation — things you can't affordably send through an LLM. The script is the data layer (~0 tokens, <2s); the LLM is the intelligence layer (~5K tokens, ~5-10s). They're complementary.
+
+**Settings:** `analysis_depth: standard` (script only, default) or `deep` (script + LLM). Users on subscriptions set `deep`; API-billing users keep the default.
+
+---
+
+## 2026-03-27: Artifacts always default to project-level scope
+
+**Decision:** All generated artifacts are placed at project-level (`.claude/`) by default. Forge never suggests user-level placement on its own. The user can override during review ("make this user-level").
+
+**Why:** Suggesting user-level placement would require knowing that a pattern transcends multiple projects — which requires cross-project analysis, which we explicitly decided against for privacy. Even if we had the data, "always use snake_case" might be a convention one project chose, not a personal universal. Forge can't distinguish without reading other projects.
+
+**How:** During `/forge` review, the user can say "approve, but make this user-level" to place an artifact in `~/.claude/` instead. This is a Phase 4 feature (Task 4.3) — for now, everything goes to project-level.
+
+---
+
+## 2026-03-27: Cross-type misuse detection added to config audit
+
+**Decision:** Extend the config audit to detect content placed in the wrong artifact type — behavioral preferences inside skills, multi-step workflows in CLAUDE.md, deterministic commands in rules instead of hooks, rules without path scoping that mention specific file types.
+
+**Why:** Users (and Claude itself) routinely put content in the wrong artifact type. A skill that says "always use functional components" in step 3 means that preference only applies when the skill is invoked — it should be a rule that's always active. A CLAUDE.md entry with a 15-line deployment workflow burns context budget every session when it should be a skill invoked on demand. Detecting and fixing these misplacements is core to Forge's value proposition of optimizing context architecture.
+
+**Implementation:** Split between script (structural signals — line counts, regex for command patterns, path-scope checks) and LLM pass (semantic understanding — distinguishing a behavioral preference from a workflow step). Added as Phase 2 Task 2.6.

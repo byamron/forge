@@ -12,8 +12,8 @@ The product spec is at `.context/attachments/forge-spec.md`. The implementation 
 
 ## Architecture
 
-- **Skills** (`forge/skills/*/SKILL.md`): User-facing commands — `/forge:status`, `/forge:analyze`, `/forge:optimize`
-- **Agents** (`forge/agents/*.md`): Subagents — `session-analyzer` (Phase B confirmation), `artifact-generator` (creates artifacts)
+- **Skills** (`forge/skills/*/SKILL.md`): User-facing commands — `/forge:status`, `/forge:analyze`, `/forge:optimize`, `/forge:settings`
+- **Agents** (`forge/agents/*.md`): Subagents — `session-analyzer` (LLM analysis pass, replaces Phase B confirmation), `artifact-generator` (creates artifacts)
 - **Scripts** (`forge/scripts/*.py`): Zero-token Phase A analysis — `analyze-config.py`, `analyze-transcripts.py`, `analyze-memory.py`
 - **Hooks** (`forge/hooks/hooks.json`): SessionEnd hook for session tracking
 - **References** (`forge/references/*.md`): Templates and best practices used by the artifact-generator
@@ -25,6 +25,8 @@ The product spec is at `.context/attachments/forge-spec.md`. The implementation 
 - The plugin never interrupts mid-task. All analysis is retroactive.
 - Generated skills and agents are drafts. CLAUDE.md entries, rules, and hooks are typically production-ready.
 - Session transcript JSONL format is not a stable API — parser must handle format variations gracefully.
+- **Analysis scope is per-project.** All pattern detection is scoped to the current project and its worktrees. Forge never reads transcripts from unrelated projects. Cross-project aggregation is a future opt-in feature only.
+- **Artifacts default to project-level.** All generated artifacts go to `.claude/` (project-level), never `~/.claude/` (user-level). The user can override during review. Forge never suggests user-level on its own.
 
 ## Code Style
 
