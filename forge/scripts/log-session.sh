@@ -41,23 +41,29 @@ fi
 # Encode the project path as Claude Code stores it (/ -> -)
 PROJECT_DIR_NAME=$(echo "$PROJECT_ROOT" | tr '/' '-')
 
-# Update index atomically using python3 (handles JSON read-modify-write)
+# Update index atomically using python3 (handles JSON read-modify-write).
+# Pass values via environment variables to avoid shell injection through
+# crafted remote URLs or project paths containing quote characters.
 mkdir -p "$HOME/.claude/forge"
-python3 -c "
-import json, sys
+FORGE_DIR_NAME="$PROJECT_DIR_NAME" FORGE_REMOTE_URL="$REMOTE_URL" python3 -c "
+import json, os, sys
 from pathlib import Path
 
 index_path = Path.home() / '.claude' / 'forge' / 'repo-index.json'
-dir_name = '$PROJECT_DIR_NAME'
+dir_name = os.environ['FORGE_DIR_NAME']
+raw_remote = os.environ['FORGE_REMOTE_URL']
 
 # Strip credentials from remote URL before storing (e.g., https://token@github.com/...)
 from urllib.parse import urlparse, urlunparse
-_parsed = urlparse('$REMOTE_URL')
-if _parsed.username or _parsed.password:
-    _clean = _parsed._replace(netloc=_parsed.hostname + (':' + str(_parsed.port) if _parsed.port else ''))
-    remote = urlunparse(_clean)
-else:
-    remote = '$REMOTE_URL'
+try:
+    _parsed = urlparse(raw_remote)
+    if _parsed.username or _parsed.password:
+        _clean = _parsed._replace(netloc=_parsed.hostname + (':' + str(_parsed.port) if _parsed.port else ''))
+        remote = urlunparse(_clean)
+    else:
+        remote = raw_remote
+except Exception:
+    remote = raw_remote
 
 # Load existing index
 index = {}

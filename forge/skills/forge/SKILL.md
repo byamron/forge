@@ -129,6 +129,12 @@ If `AskUserQuestion` is not available, fall back to presenting the options conve
 
 For each approved proposal:
 
+0. **Validate the artifact path before writing.** The `suggested_path` must satisfy ALL of these:
+   - It is a relative path (does not start with `/` or `~`)
+   - It resolves to a location within the project root (no `..` traversal that escapes)
+   - It targets only allowed locations: `CLAUDE.md`, `.claude/rules/`, `.claude/skills/`, `.claude/agents/`, `.claude/references/`, `.claude/commands/` (for legacy migration reads), `.claude/settings.json`, or `.claude/forge/`
+   - If any path fails validation, **skip the proposal**, warn the user, and mark it as skipped
+
 1. Spawn the `artifact-generator` agent with the proposal details (type, description, suggested_content, suggested_path). The agent produces the final artifact content.
 2. Write the artifact to the specified path:
    - **CLAUDE.md entries**: Append to `CLAUDE.md` (create if needed). Warn if over 100 lines after.

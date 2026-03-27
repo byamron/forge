@@ -20,6 +20,7 @@ The product spec is at `.context/attachments/forge-spec.md`. The implementation 
 
 ## Key Constraints
 
+- **Security is non-negotiable.** Forge must never delete user code, write outside `.claude/`/`CLAUDE.md`, or introduce vulnerabilities. All writes go through user approval. See `.claude/rules/security.md` for the full security policy.
 - Python scripts use only the standard library (no pip dependencies). Must work on Python 3.8+.
 - Subagents use `model: sonnet` and `effort: low` to minimize token cost. Every token Forge consumes comes from the user's quota.
 - The plugin never interrupts mid-task. All analysis is retroactive.

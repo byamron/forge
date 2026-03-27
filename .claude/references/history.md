@@ -276,3 +276,27 @@ Key changes:
 **Alternatives considered:**
 - Name + description only — rejected because the description is a summary; the actual behavior lives in the body instructions.
 - Scanning only `.claude/skills/` — rejected because legacy `.claude/commands/` files still work and are common in existing projects.
+
+---
+
+## 2026-03-26: Security hardening pass
+
+**Decision:** Comprehensive security review and hardening of the entire plugin. Changes:
+
+1. **Fixed shell injection in `log-session.sh`.** `$REMOTE_URL` and `$PROJECT_DIR_NAME` were interpolated into Python string literals via single quotes — a crafted git remote URL containing `'` could inject arbitrary Python code. Fixed by passing values via environment variables (`FORGE_DIR_NAME`, `FORGE_REMOTE_URL`) and reading with `os.environ`.
+
+2. **Restricted artifact-generator agent.** Added `disallowedTools: [Bash]`. The agent only needs Write/Edit to produce artifacts — it never needs shell access. This limits blast radius if the agent misinterprets a proposal.
+
+3. **Added safety constraints to both agents.** Explicit, non-negotiable rules: write targets are restricted to `.claude/` and `CLAUDE.md`, hooks must be non-destructive, no executable generation, no file deletion (except approved legacy command migration).
+
+4. **Added path validation to `/forge` skill.** Before writing any artifact, the skill validates that `suggested_path` is relative, stays within the project root (no `..` traversal), and targets only allowed locations.
+
+5. **Added path traversal protection to `_decode_project_dir()`.** Rejects encoded directory names containing `..` components. Final resolved path is checked for traversal.
+
+6. **Created `.claude/rules/security.md`.** Documents the full security policy: write boundaries, shell safety, agent isolation, data handling, and destructive operation rules.
+
+**Why:** Forge runs as a plugin inside Claude Code, which has broad file system access. A user trusting Forge with their project is trusting it to not delete code, leak data, or introduce vulnerabilities. The existing code was mostly safe by design (atomic writes, subprocess list form, credential stripping) but had gaps: the shell injection in `log-session.sh` was real, the artifact-generator having Bash access was unnecessary risk, and safety invariants were implicit rather than documented and enforced.
+
+**Alternatives considered:**
+- Sandboxing via containerization — overkill for a Claude Code plugin; the permission model (disallowedTools, user approval gates) is the right level of isolation.
+- Removing the SessionEnd hook entirely — too aggressive; the hook is useful and the injection was fixable.

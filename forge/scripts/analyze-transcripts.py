@@ -280,6 +280,9 @@ def _decode_project_dir(encoded: str) -> str:
     path exists on disk. Falls back to treating each - as a / separator.
     """
     parts = encoded.lstrip("-").split("-")
+    # Reject if any segment is a literal ".." path traversal component
+    if any(p == ".." for p in parts):
+        return ""
     result = ["/"]
     i = 0
     while i < len(parts):
