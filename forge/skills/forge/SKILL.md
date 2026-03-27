@@ -6,6 +6,9 @@ description: >
   applying suggestions. Use when you want to optimize your Claude Code
   infrastructure, check your setup health, or review pending suggestions.
   Works immediately on first run with no session history needed.
+context:
+  - references/artifact-templates.md
+  - references/anthropic-best-practices.md
 ---
 
 You are running Forge, the Claude Code infrastructure optimizer. Follow these steps in order.
@@ -81,11 +84,9 @@ After receiving decisions, show the draft artifact content (in a code block with
 
 ## Step 3: Generate and apply approved proposals
 
-**Before generating any artifacts**, read the artifact templates and best practices once (using the `FORGE_ROOT` path from Step 1):
-- `<FORGE_ROOT>/references/artifact-templates.md`
-- `<FORGE_ROOT>/references/anthropic-best-practices.md`
+The artifact templates and Anthropic best practices are already loaded in your context (via the `context` frontmatter). Use them to generate artifacts.
 
-Then for all approved proposals:
+For all approved proposals:
 
 ### 3a. Validate paths
 
