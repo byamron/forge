@@ -116,6 +116,48 @@ def _parse_skill(skill_path: Path) -> Optional[Dict[str, str]]:
         "description": description,
         "content": body,
         "path": str(skill_path),
+        "format": "skill",
+    }
+
+
+def _parse_legacy_command(cmd_path: Path) -> Optional[Dict[str, str]]:
+    """Parse a legacy .claude/commands/*.md file.
+
+    These predate the skills format but still work in Claude Code.
+    Returns the same structure as _parse_skill with format='legacy_command'.
+    """
+    try:
+        text = cmd_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+    lines = text.splitlines()
+    name = cmd_path.stem  # e.g., "link" from "link.md"
+
+    # Try to extract description from frontmatter if present
+    description = ""
+    body_start = 0
+    if lines and lines[0].strip() == "---":
+        end = -1
+        for i, line in enumerate(lines[1:], 1):
+            if line.strip() == "---":
+                end = i
+                break
+        if end > 0:
+            body_start = end + 1
+            for line in lines[1:end]:
+                stripped = line.strip()
+                if stripped.startswith("description:"):
+                    description = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+
+    body = "\n".join(lines[body_start:]).strip()
+
+    return {
+        "name": name,
+        "description": description,
+        "content": body,
+        "path": str(cmd_path),
+        "format": "legacy_command",
     }
 
 
@@ -151,8 +193,9 @@ def compute_context_budget(root: Path):
     rules_dir = root / ".claude" / "rules"
     budget["rules_count"], budget["rules_total_lines"] = _count_md_files(rules_dir)
 
-    # Skills (SKILL.md files)
+    # Skills (SKILL.md files) and legacy commands (.claude/commands/*.md)
     skills_dir = root / ".claude" / "skills"
+    commands_dir = root / ".claude" / "commands"
     skills_inventory: List[Dict[str, str]] = []
     if skills_dir.is_dir():
         for f in sorted(skills_dir.rglob("SKILL.md")):
@@ -160,7 +203,13 @@ def compute_context_budget(root: Path):
                 info = _parse_skill(f)
                 if info:
                     skills_inventory.append(info)
-        budget["skills_count"] = len(skills_inventory)
+    if commands_dir.is_dir():
+        for f in sorted(commands_dir.iterdir()):
+            if f.is_file() and f.suffix == ".md":
+                info = _parse_legacy_command(f)
+                if info:
+                    skills_inventory.append(info)
+    budget["skills_count"] = len(skills_inventory)
 
     # Agents
     agents_dir = root / ".claude" / "agents"

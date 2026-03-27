@@ -79,9 +79,10 @@ Apply minimum evidence thresholds:
 
 **Exceptions:** Config gap suggestions and memory promotions are included regardless of session evidence.
 
-**Cross-reference with existing artifacts:** The config audit returns an `existing_skills` list with each skill's name, description, full content, and path. Before proposing a new skill, read the full content of existing skills and check whether one already handles the detected pattern. If it does:
+**Cross-reference with existing artifacts:** The config audit returns an `existing_skills` list that includes both modern skills (`.claude/skills/*/SKILL.md`) and legacy commands (`.claude/commands/*.md`). Each entry has name, description, full content, path, and format (`"skill"` or `"legacy_command"`). Before proposing a new skill, read the full content of existing entries and check whether one already handles the detected pattern. If it does:
 - Do **not** propose a new skill for the same pattern.
 - If the existing skill could be improved based on the evidence (e.g., the user's actual phrasing reveals steps the skill misses, or the skill could handle additional variants), propose a **modification** to the existing skill instead, with `type: "skill_update"` and `suggested_path` pointing to the existing skill's path.
+- If a legacy command (format `"legacy_command"`) covers the pattern, consider proposing a migration to the modern skills format as a `skill_update` proposal.
 
 Combine these new proposals with any pending proposals from Step 1. Deduplicate by comparing descriptions and evidence — don't propose the same thing twice.
 
