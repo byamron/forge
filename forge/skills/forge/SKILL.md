@@ -123,16 +123,16 @@ For each approved proposal:
 2. Write the artifact to the specified path:
    - **CLAUDE.md entries**: Append to `CLAUDE.md` (create if needed). Warn if over 100 lines after.
    - **Rules**: Write to `.claude/rules/<name>.md` (create directory if needed)
-   - **Hooks**: Merge into `.claude/settings.json` (preserve existing hooks)
+   - **Hooks**: Read existing `.claude/settings.json`, merge the new hook into the appropriate event array (e.g., add a new PostToolUse entry alongside existing ones). Create the file if it doesn't exist. Preserve all existing hooks — never overwrite.
    - **Skills**: Create `.claude/skills/<name>/SKILL.md` (create directory structure)
    - **Agents**: Write to `.claude/agents/<name>.md`
-   - **Reference docs**: Write to `.claude/references/<name>.md`. Add a pointer line to CLAUDE.md.
+   - **Reference docs**: Write to `.claude/references/<name>.md`. Add a pointer line to CLAUDE.md: `For detailed X conventions, see .claude/references/Y.md`
    - All artifacts go to project-level (`.claude/`), never user-level (`~/.claude/`).
 3. Update the proposal's status to `"applied"` in pending.json
 4. Record in `.claude/forge/history/applied.json`
 5. Update feedback stats:
    ```bash
-   python3 "$CLAUDE_PLUGIN_ROOT/scripts/update-analyzer-stats.py" --category <category> --outcome approved --theme-hash <id>
+   python3 "$CLAUDE_PLUGIN_ROOT/scripts/update-analyzer-stats.py" --category <category> --outcome approved --theme-hash <proposal-id>
    ```
 
 For **modified** proposals: ask what the user wants to change, adjust the content, show the updated preview, then ask for approval again.
@@ -144,15 +144,17 @@ For **never** proposals:
 2. Append to `.claude/forge/dismissed.json` with a timestamp
 3. Update feedback stats:
    ```bash
-   python3 "$CLAUDE_PLUGIN_ROOT/scripts/update-analyzer-stats.py" --category <category> --outcome suppressed --theme-hash <id>
+   python3 "$CLAUDE_PLUGIN_ROOT/scripts/update-analyzer-stats.py" --category <category> --outcome suppressed --theme-hash <proposal-id>
    ```
 
 ## Step 8: Save and summarize
 
-Save the updated proposals to `.claude/forge/proposals/pending.json`:
+Write the full proposal list (with updated statuses) to `.claude/forge/proposals/pending.json`:
 ```bash
 mkdir -p .claude/forge/proposals
 ```
+
+Write the JSON array of all proposals. Applied proposals have `"status": "applied"`, dismissed have `"status": "dismissed"`, skipped keep `"status": "pending"`. This way, the next `/forge` run knows what's been handled.
 
 Give a brief summary:
 - How many proposals were approved and applied
