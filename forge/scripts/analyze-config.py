@@ -16,6 +16,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import Dict, List, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +56,66 @@ def _glob_exists(directory: Path, pattern: str) -> bool:
     return any(True for _ in directory.glob(pattern))
 
 
+def _parse_skill_frontmatter(skill_path: Path) -> Optional[Dict[str, str]]:
+    """Extract name and description from a SKILL.md YAML frontmatter.
+
+    Uses simple string splitting (no pyyaml dependency).
+    Returns {"name": ..., "description": ..., "path": ...} or None.
+    """
+    try:
+        text = skill_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+
+    # Find closing ---
+    end = -1
+    for i, line in enumerate(lines[1:], 1):
+        if line.strip() == "---":
+            end = i
+            break
+    if end < 0:
+        return None
+
+    frontmatter: Dict[str, str] = {}
+    current_key = ""
+    current_val = ""
+
+    for line in lines[1:end]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Check for key: value or key: >
+        if ":" in stripped and not stripped.startswith("-") and not stripped.startswith(" "):
+            if current_key:
+                frontmatter[current_key] = current_val.strip()
+            parts = stripped.split(":", 1)
+            current_key = parts[0].strip()
+            val = parts[1].strip()
+            if val == ">" or val == "|":
+                current_val = ""
+            else:
+                current_val = val
+        elif current_key:
+            # Continuation line for multiline value
+            current_val += " " + stripped
+
+    if current_key:
+        frontmatter[current_key] = current_val.strip()
+
+    name = frontmatter.get("name", skill_path.parent.name)
+    description = frontmatter.get("description", "")
+
+    return {
+        "name": name,
+        "description": description,
+        "path": str(skill_path),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Context budget
 # ---------------------------------------------------------------------------
@@ -89,10 +150,14 @@ def compute_context_budget(root: Path):
 
     # Skills (SKILL.md files)
     skills_dir = root / ".claude" / "skills"
+    skills_inventory: List[Dict[str, str]] = []
     if skills_dir.is_dir():
-        budget["skills_count"] = sum(
-            1 for f in skills_dir.rglob("SKILL.md") if f.is_file()
-        )
+        for f in sorted(skills_dir.rglob("SKILL.md")):
+            if f.is_file():
+                info = _parse_skill_frontmatter(f)
+                if info:
+                    skills_inventory.append(info)
+        budget["skills_count"] = len(skills_inventory)
 
     # Agents
     agents_dir = root / ".claude" / "agents"
@@ -128,7 +193,7 @@ def compute_context_budget(root: Path):
         budget["claude_md_lines"] + budget["claude_local_md_lines"]
     )
 
-    return budget
+    return budget, skills_inventory
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +576,7 @@ def main():
         sys.exit(1)
 
     try:
-        budget = compute_context_budget(root)
+        budget, skills_inventory = compute_context_budget(root)
         tech_stack = detect_tech_stack(root)
         gaps = find_gaps(root, tech_stack)
         placement_issues = find_placement_issues(root)
@@ -520,6 +585,7 @@ def main():
             "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
             "project_root": str(root),
             "context_budget": budget,
+            "existing_skills": skills_inventory,
             "tech_stack": tech_stack,
             "gaps": gaps,
             "placement_issues": placement_issues,
