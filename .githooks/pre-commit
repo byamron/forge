@@ -1,0 +1,13 @@
+#!/bin/sh
+# Pre-commit hook: sync version from plugin.json to marketplace.json
+
+# Only run if either file is being committed
+if git diff --cached --name-only | grep -qE '(forge/\.claude-plugin/plugin\.json|\.claude-plugin/marketplace\.json)'; then
+    python3 "$(git rev-parse --show-toplevel)/scripts/sync-version.py"
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Version sync failed. Fix and retry."
+        exit 1
+    fi
+    # Stage the updated marketplace.json if it changed
+    git add .claude-plugin/marketplace.json
+fi
