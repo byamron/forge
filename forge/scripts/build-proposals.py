@@ -194,6 +194,42 @@ path: "**/*"
 # Proposal builders — one per source type
 # ---------------------------------------------------------------------------
 
+def _build_from_budget(config: Dict) -> List[Dict]:
+    """Build proposals from context budget issues."""
+    proposals = []
+    budget = config.get("context_budget", {})
+    lines = budget.get("claude_md_lines", 0)
+    tier1 = budget.get("estimated_tier1_lines", 0)
+    placement_issues = config.get("placement_issues", [])
+
+    if lines > 150 or tier1 > 150:
+        # Count domain-specific entries that could be extracted
+        extractable = [
+            p for p in placement_issues
+            if p.get("type") == "domain_specific_in_claude_md"
+        ]
+        n = len(extractable)
+        proposals.append({
+            "id": "reduce-claude-md-size",
+            "type": "reference_doc",
+            "impact": "high" if lines > 300 else "medium",
+            "confidence": "high",
+            "description": (
+                f"CLAUDE.md is {lines} lines — extract sections to "
+                f".claude/rules/ or .claude/references/ to reduce context weight"
+            ),
+            "evidence_summary": (
+                f"{lines} lines (budget: 150). "
+                f"{n} domain-specific sections could be extracted."
+            ),
+            "suggested_content": "",  # LLM determines what to extract
+            "suggested_path": "CLAUDE.md",
+            "status": "pending",
+        })
+
+    return proposals
+
+
 def _build_from_gaps(config: Dict, existing_hooks: List[Dict]) -> List[Dict]:
     """Build proposals from config audit gaps."""
     proposals = []
@@ -464,6 +500,7 @@ def build_proposals(config: Dict, transcripts: Dict, memory: Dict,
 
     # Build proposals from all sources
     all_proposals = []
+    all_proposals.extend(_build_from_budget(config))
     all_proposals.extend(_build_from_gaps(config, existing_hooks))
     all_proposals.extend(
         _build_from_repeated_prompts(transcripts, existing_skills)

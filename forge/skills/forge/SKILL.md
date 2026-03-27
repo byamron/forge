@@ -25,9 +25,27 @@ The output is a JSON object with:
 - `context_health`: Summary of context budget and artifact counts
 - `stats`: How many sessions were analyzed, candidates found, etc.
 
-## Step 2: Present proposals
+## Step 2: Present results
 
-If there are no proposals, show the context health one-liner and tell the user their setup looks good. Stop.
+### Context health
+
+Using the `context_health` from Step 1, show a brief health table:
+
+```
+| Metric           | Value | Status |
+|------------------|-------|--------|
+| CLAUDE.md lines  | 163   | ✓      |
+| Rules            | 3     | ✓      |
+| Skills/Commands  | 2     | ✓      |
+| Hooks            | 0     | ⚠      |
+| Agents           | 0     | ✓      |
+```
+
+Use ⚠ for any metric with gaps or issues. If `context_health.over_budget` is true, mark CLAUDE.md with ⚠.
+
+### Proposals
+
+If there are no proposals, tell the user their setup looks good. Stop.
 
 Present the proposals in a **single summary table** with evidence inline:
 
@@ -113,6 +131,3 @@ Give a brief summary:
 - How many were dismissed
 - If artifacts were created, remind the user to test them
 
-### Context health
-
-After the summary, show the `context_health.summary` from the Step 1 output. Only show if it contains useful information (budget warnings, placement notes). If everything is clean, skip this.
