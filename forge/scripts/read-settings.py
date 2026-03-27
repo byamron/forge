@@ -18,8 +18,8 @@ DEFAULTS = {
 
 LEVEL_DESCRIPTIONS = {
     "quiet": "No automatic nudges. Forge only runs when you invoke /forge.",
-    "balanced": "Nudge on session start after 5+ new unanalyzed sessions.",
-    "eager": "Nudge on session start after 2+ new unanalyzed sessions.",
+    "balanced": "Nudge when you have pending proposals, or after 5+ sessions since last analysis.",
+    "eager": "Nudge when you have any pending proposals, or after 2+ sessions since last analysis.",
 }
 
 LEVEL_THRESHOLDS = {

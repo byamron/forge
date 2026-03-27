@@ -9,4 +9,4 @@ Skills and agents are markdown files with YAML frontmatter that instruct Claude 
 - Body instructions use imperative voice with clear step structure (## Step N headers).
 - Agent frontmatter must include `model`, `effort`, and `maxTurns`. Default to `model: sonnet`, `effort: low`.
 - Use `disallowedTools` on agents that should only read and reason, not write files.
-- Skills reference analysis scripts via `$CLAUDE_PLUGIN_ROOT/scripts/` — this resolves to the plugin's install directory at runtime.
+- Skills reference analysis scripts via `${CLAUDE_PLUGIN_ROOT}/scripts/` — this resolves to the plugin's install directory at runtime.

@@ -33,8 +33,8 @@ These constraints are non-negotiable. Violating them could cause data loss or se
 - **No executable generation.** Never generate shell scripts, Python scripts, or any executable code outside of hook `command` strings. Hook commands must be single, well-known tool invocations (e.g., `prettier`, `eslint`, `cargo fmt`).
 
 Before generating, read these reference files for detailed templates and guidelines:
-- `$CLAUDE_PLUGIN_ROOT/references/artifact-templates.md`
-- `$CLAUDE_PLUGIN_ROOT/references/anthropic-best-practices.md`
+- `${CLAUDE_PLUGIN_ROOT}/references/artifact-templates.md`
+- `${CLAUDE_PLUGIN_ROOT}/references/anthropic-best-practices.md`
 
 ## Artifact specifications
 
