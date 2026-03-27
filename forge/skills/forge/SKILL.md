@@ -10,41 +10,29 @@ description: >
 
 You are running Forge, the Claude Code infrastructure optimizer. Follow these steps in order.
 
-## Step 0: Resolve plugin root
+## Step 1: Resolve plugin root and check cache
 
-Run this to determine the plugin's install directory:
-
-```bash
-FORGE_ROOT="${CLAUDE_PLUGIN_ROOT}"; if [ -z "$FORGE_ROOT" ]; then FORGE_ROOT=$(python3 -c "import json,pathlib; data=json.loads(pathlib.Path.home().joinpath('.claude/plugins/installed_plugins.json').read_text()); print(next((v[0]['installPath'] for k,v in data.get('plugins',{}).items() if k.startswith('forge@')), ''))" 2>/dev/null); fi; echo "$FORGE_ROOT"
-```
-
-If this returns a path, store it — use it in place of `${CLAUDE_PLUGIN_ROOT}` for all script calls in subsequent steps. If it returns nothing, tell the user the Forge plugin scripts could not be located and stop.
-
-## Step 1: Check for pending proposals
-
-Read `.claude/forge/proposals/pending.json` if it exists. Count proposals with `"status": "pending"`. Also read `.claude/forge/dismissed.json` if it exists — you'll need this to filter out dismissed patterns later.
-
-If there are pending proposals, tell the user:
-> Found N pending proposal(s) from a previous analysis. I'll present those after running a fresh check.
-
-## Step 2: Run Phase A analysis scripts
-
-First, check if cached results are available:
+Run a single command that resolves the plugin directory and checks the analysis cache:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cache-manager.py" --check --plugin-root "${CLAUDE_PLUGIN_ROOT}"
+FORGE_ROOT="${CLAUDE_PLUGIN_ROOT}"; if [ -z "$FORGE_ROOT" ]; then FORGE_ROOT=$(python3 -c "import json,pathlib; data=json.loads(pathlib.Path.home().joinpath('.claude/plugins/installed_plugins.json').read_text()); print(next((v[0]['installPath'] for k,v in data.get('plugins',{}).items() if k.startswith('forge@')), ''))" 2>/dev/null); fi; if [ -z "$FORGE_ROOT" ]; then echo 'ERROR: Could not locate Forge plugin'; exit 1; fi; echo "FORGE_ROOT=$FORGE_ROOT"; python3 "$FORGE_ROOT/scripts/cache-manager.py" --check --plugin-root "$FORGE_ROOT"
 ```
 
-Parse the output. Each script (`config`, `transcripts`, `memory`) will be either `"fresh"` (with cached `result`) or `"stale"`.
+If the output starts with `ERROR`, tell the user the Forge plugin scripts could not be located and stop.
 
-- For **fresh** scripts: use the cached `result` directly — no need to re-run.
-- For **stale** scripts: run only those in a single bash command:
+Otherwise, parse the cache check output. Each script (`config`, `transcripts`, `memory`) will be either `"fresh"` (with cached `result`) or `"stale"`. Store the `FORGE_ROOT` path for subsequent steps.
+
+Also read `.claude/forge/proposals/pending.json` and `.claude/forge/dismissed.json` if they exist — you'll need pending proposals and dismissed patterns later.
+
+## Step 2: Run stale analysis scripts
+
+If any scripts are `"stale"`, run only those in a single bash command (substitute the actual `FORGE_ROOT` path):
 
 ```bash
-echo '===CONFIG===' && python3 "${CLAUDE_PLUGIN_ROOT}/scripts/analyze-config.py" 2>&1; echo '===TRANSCRIPTS===' && python3 "${CLAUDE_PLUGIN_ROOT}/scripts/analyze-transcripts.py" 2>&1; echo '===MEMORY===' && python3 "${CLAUDE_PLUGIN_ROOT}/scripts/analyze-memory.py" 2>&1
+echo '===CONFIG===' && python3 "<FORGE_ROOT>/scripts/analyze-config.py" 2>&1; echo '===TRANSCRIPTS===' && python3 "<FORGE_ROOT>/scripts/analyze-transcripts.py" 2>&1; echo '===MEMORY===' && python3 "<FORGE_ROOT>/scripts/analyze-memory.py" 2>&1
 ```
 
-Only include scripts that are stale in the command above — skip fresh ones. If all three are fresh, skip this bash command entirely.
+Only include scripts that are stale — skip fresh ones. **If all three are fresh, skip this step entirely** (no bash command needed).
 
 If any script fails, use the others. The config audit provides value even without transcripts.
 
@@ -126,20 +114,9 @@ Filter out any proposals whose pattern matches a dismissed entry in `dismissed.j
 
 If there are no proposals, tell the user their setup looks good and stop.
 
-Present all proposals together using a **single `AskUserQuestion` call** with one question per proposal (up to 4 proposals per call). For each proposal, the question should include:
+### 6a. Show a summary table
 
-- A one-line summary with impact level (e.g., "**[High]** Add auto-lint hook — ESLint configured but no PostToolUse hook exists")
-- The artifact type and target path
-
-Each question should have these options:
-- **Approve** (description: "Generate and place the artifact now")
-- **Modify** (description: "I'll tell you what to change first")
-- **Skip** (description: "Keep for next time")
-- **Never** (description: "Dismiss permanently — don't suggest this again")
-
-If there are more than 4 proposals, batch them into multiple AskUserQuestion calls of up to 4 each.
-
-Before asking, show a summary table of all proposals:
+Present a concise overview of all proposals — **do not show draft content yet**:
 
 ```
 | # | Impact | Type | Proposal |
@@ -148,9 +125,28 @@ Before asking, show a summary table of all proposals:
 | 2 | Medium | rule | Extract framework details from CLAUDE.md |
 ```
 
-Then show the preview (artifact content in a code block) for each proposal, so the user can see what they're approving.
+Include a brief one-line evidence summary per row (e.g., "ESLint configured, no PostToolUse hook").
+
+### 6b. Ask for decisions
+
+Use a **single `AskUserQuestion` call** with one question per proposal (up to 4 per call). Each question should include:
+
+- A one-line summary with impact level (e.g., "**[High]** Add auto-lint hook — ESLint configured but no PostToolUse hook exists")
+- The artifact type and target path
+
+Options per question:
+- **Approve** (description: "Generate and place the artifact now")
+- **Modify** (description: "I'll tell you what to change first")
+- **Skip** (description: "Keep for next time")
+- **Never** (description: "Dismiss permanently — don't suggest this again")
+
+If there are more than 4 proposals, batch them into multiple AskUserQuestion calls of up to 4 each.
 
 If `AskUserQuestion` is not available, fall back to presenting the options conversationally and waiting for the user's response.
+
+### 6c. Show drafts only for approved/modified proposals
+
+After receiving the user's decisions, show the draft artifact content (in a code block with file path) **only for proposals the user approved or wants to modify**. Do not show drafts for skipped or dismissed proposals.
 
 **Always wait for explicit user approval before writing any files.** Never auto-apply proposals.
 
