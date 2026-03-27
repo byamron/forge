@@ -16,7 +16,7 @@ Forge reads data that Claude Code already stores on your machine. It does not cr
 ### Project configuration
 
 - **Location:** `CLAUDE.md`, `.claude/rules/`, `.claude/settings.json`, `hooks.json` in your project directory.
-- **How Forge uses them:** The config auditor checks for missing hooks, misplaced instructions, and tier placement issues. Read-only — Forge never modifies these files without your explicit approval via `/forge:optimize`.
+- **How Forge uses them:** The config auditor checks for missing hooks, misplaced instructions, and tier placement issues. Read-only — Forge never modifies these files without your explicit approval via `/forge`.
 
 ### Auto-memory
 
@@ -48,7 +48,7 @@ Forge reads data that Claude Code already stores on your machine. It does not cr
   ```
   2026-03-26T18:30:00Z abc12345-def6-7890-ghij-klmnopqrstuv
   ```
-- **Why it exists:** Tracks which sessions are new since the last `/forge:analyze` run so the plugin can nudge you about pending findings.
+- **Why it exists:** Tracks which sessions are new since the last `/forge` run so the plugin can nudge you about pending findings.
 - **Scope:** Per-project. Gitignored (lives in `.claude/forge/` which is in `.gitignore`).
 
 ### Settings
@@ -75,7 +75,7 @@ Forge reads data that Claude Code already stores on your machine. It does not cr
 - **No telemetry.** Forge does not collect usage statistics, error reports, or analytics.
 - **No data exfiltration.** Forge never reads, copies, or references data from other projects. Cross-worktree aggregation only links directories that share the same git remote URL.
 - **No credential storage.** Credentials are actively stripped from URLs before any data is written to disk.
-- **No modifications without consent.** Forge only writes to your project's `.claude/` directory when you explicitly approve a proposal via `/forge:optimize`. The only automatic writes are the session log and repo index (described above).
+- **No modifications without consent.** Forge only writes to your project's `.claude/` directory when you explicitly approve a proposal via `/forge`. The only automatic writes are the session log and repo index (described above).
 
 ## Data lifecycle
 
@@ -84,9 +84,9 @@ Forge reads data that Claude Code already stores on your machine. It does not cr
 | Repo index | SessionEnd hook | Until manually deleted | `rm ~/.claude/forge/repo-index.json` |
 | Session log | SessionEnd hook | Until manually deleted | `rm <project>/.claude/forge/unanalyzed-sessions.log` |
 | Settings | `/forge:settings` | Until manually deleted | `rm <project>/.claude/forge/settings.json` |
-| Proposals | `/forge:analyze` | Until accepted/dismissed | `rm -r <project>/.claude/forge/proposals/` |
-| History | `/forge:optimize` | Indefinitely | `rm <project>/.claude/forge/history.json` |
-| Analyzer stats | `/forge:optimize` | Until manually deleted | `rm ~/.claude/forge/analyzer-stats.json` |
+| Proposals | `/forge` | Until accepted/dismissed | `rm -r <project>/.claude/forge/proposals/` |
+| History | `/forge` | Indefinitely | `rm <project>/.claude/forge/history.json` |
+| Analyzer stats | `/forge` | Until manually deleted | `rm ~/.claude/forge/analyzer-stats.json` |
 
 To remove all Forge-created data from your machine:
 

@@ -248,3 +248,31 @@ Key changes:
 **Why:** Users (and Claude itself) routinely put content in the wrong artifact type. A skill that says "always use functional components" in step 3 means that preference only applies when the skill is invoked — it should be a rule that's always active. A CLAUDE.md entry with a 15-line deployment workflow burns context budget every session when it should be a skill invoked on demand. Detecting and fixing these misplacements is core to Forge's value proposition of optimizing context architecture.
 
 **Implementation:** Split between script (structural signals — line counts, regex for command patterns, path-scope checks) and LLM pass (semantic understanding — distinguishing a behavioral preference from a workflow step). Added as Phase 2 Task 2.6.
+
+---
+
+## 2026-03-27: Unified `/forge` command replaces three separate skills
+
+**Decision:** Consolidated `/forge:status`, `/forge:analyze`, `/forge:optimize` into a single `/forge` command. `/forge:settings` remains separate.
+
+**Why:** The three-command split created unnecessary cognitive overhead. The user explicitly said "I don't want to have to learn a bunch of stuff." In practice, analyze→optimize was always run back-to-back, and status was just the first section of analyze. The only scenario for running optimize separately was to revisit pending proposals from a prior session — the unified command handles this by checking for pending proposals first.
+
+**Flow:** The unified command runs in order: (1) check for pending proposals, (2) run Phase A scripts, (3) present status summary, (4) present pattern findings, (5) merge into proposals, (6) present each proposal one at a time with approve/modify/skip/never options, (7) apply approved proposals via artifact-generator agent, (8) record decisions for feedback loop.
+
+**Key constraint preserved:** The plugin always asks explicit permission before writing any files. Proposals are presented with full evidence and a preview of what would be generated. The user must approve each one individually.
+
+**AskUserQuestion integration:** The skill instructs Claude to use the `AskUserQuestion` tool (Claude Agent SDK built-in) to present structured multiple-choice options for each proposal (Approve/Modify/Skip/Never). This provides a cleaner UI than free-text conversation when available. Falls back to conversational asking if the tool isn't available. Limitation: 1-4 questions with 2-4 options each, not available in subagents.
+
+---
+
+## 2026-03-27: Full artifact inventory with duplicate/overlap detection
+
+**Decision:** The config auditor now returns full inventories of existing skills (including legacy `.claude/commands/*.md`), agents, and hooks — with complete file content, not just counts. The `/forge` skill cross-references these inventories before proposing new artifacts.
+
+**Why:** Without cross-referencing, the plugin would propose a new skill for a pattern already handled by an existing skill or legacy command. Discovered this when the transcript analyzer flagged "start a dev server and send a link" as a skill candidate in a project that already had a `/link` command doing exactly that. Names and descriptions alone aren't enough — the full body content is needed to determine if the pattern is truly covered or if there's a gap the existing artifact misses.
+
+**Scope:** Skills and legacy commands return name, description, full content, path, and format. Agents return the same fields. Hooks return event, matcher, type, command, and source path. A new `skill_update` proposal type handles modifications to existing skills, including migration from legacy commands to modern skills format.
+
+**Alternatives considered:**
+- Name + description only — rejected because the description is a summary; the actual behavior lives in the body instructions.
+- Scanning only `.claude/skills/` — rejected because legacy `.claude/commands/` files still work and are common in existing projects.

@@ -4,7 +4,7 @@ description: >
   Confirms candidate patterns from Forge's Phase A analysis. Receives
   pre-filtered evidence (not full transcripts) and determines: is this
   a real pattern? What artifact type should it be? What should the content
-  look like? Only invoked by the /forge:analyze skill.
+  look like? Only invoked by the /forge skill.
 model: sonnet
 effort: low
 maxTurns: 5

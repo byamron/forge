@@ -4,7 +4,7 @@ description: >
   Generates Claude Code infrastructure artifacts (CLAUDE.md entries, rules,
   skills, hooks, agents, reference docs) from confirmed Forge proposals.
   Follows Anthropic's official specifications for each artifact type.
-  Only invoked by the /forge:optimize skill.
+  Only invoked by the /forge skill.
 model: sonnet
 effort: low
 maxTurns: 10
