@@ -8,25 +8,42 @@ Used as a pre-commit hook to keep versions in sync.
 """
 
 import json
+import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
+
+
+def read_staged(path: str) -> Optional[str]:
+    """Read a file from the git index (staged content)."""
+    try:
+        return subprocess.check_output(
+            ["git", "show", ":" + path],
+            stderr=subprocess.DEVNULL,
+        ).decode()
+    except subprocess.CalledProcessError:
+        return None
 
 
 def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
 
-    plugin_path = repo_root / "forge" / ".claude-plugin" / "plugin.json"
-    marketplace_path = repo_root / ".claude-plugin" / "marketplace.json"
+    plugin_rel = "forge/.claude-plugin/plugin.json"
+    marketplace_rel = ".claude-plugin/marketplace.json"
+    marketplace_path = repo_root / marketplace_rel
 
-    if not plugin_path.exists():
-        print(f"ERROR: {plugin_path} not found", file=sys.stderr)
-        sys.exit(1)
-    if not marketplace_path.exists():
-        print(f"ERROR: {marketplace_path} not found", file=sys.stderr)
+    plugin_text = read_staged(plugin_rel)
+    if plugin_text is None:
+        print(f"ERROR: {plugin_rel} not found in git index", file=sys.stderr)
         sys.exit(1)
 
-    plugin = json.loads(plugin_path.read_text())
-    marketplace = json.loads(marketplace_path.read_text())
+    marketplace_text = read_staged(marketplace_rel)
+    if marketplace_text is None:
+        print(f"ERROR: {marketplace_rel} not found in git index", file=sys.stderr)
+        sys.exit(1)
+
+    plugin = json.loads(plugin_text)
+    marketplace = json.loads(marketplace_text)
 
     version = plugin.get("version")
     if not version:
