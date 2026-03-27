@@ -10,6 +10,16 @@ description: >
 
 You are running Forge, the Claude Code infrastructure optimizer. Follow these steps in order.
 
+## Step 0: Resolve plugin root
+
+Run this to determine the plugin's install directory:
+
+```bash
+FORGE_ROOT="${CLAUDE_PLUGIN_ROOT}"; if [ -z "$FORGE_ROOT" ]; then FORGE_ROOT=$(python3 -c "import json,pathlib; data=json.loads(pathlib.Path.home().joinpath('.claude/plugins/installed_plugins.json').read_text()); print(next((v[0]['installPath'] for k,v in data.get('plugins',{}).items() if k.startswith('forge@')), ''))" 2>/dev/null); fi; echo "$FORGE_ROOT"
+```
+
+If this returns a path, store it — use it in place of `${CLAUDE_PLUGIN_ROOT}` for all script calls in subsequent steps. If it returns nothing, tell the user the Forge plugin scripts could not be located and stop.
+
 ## Step 1: Check for pending proposals
 
 Read `.claude/forge/proposals/pending.json` if it exists. Count proposals with `"status": "pending"`. Also read `.claude/forge/dismissed.json` if it exists — you'll need this to filter out dismissed patterns later.
@@ -19,42 +29,55 @@ If there are pending proposals, tell the user:
 
 ## Step 2: Run Phase A analysis scripts
 
-Run all three scripts and capture their JSON output:
+First, check if cached results are available:
 
 ```bash
-python3 "$CLAUDE_PLUGIN_ROOT/scripts/analyze-config.py"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cache-manager.py" --check --plugin-root "${CLAUDE_PLUGIN_ROOT}"
 ```
+
+Parse the output. Each script (`config`, `transcripts`, `memory`) will be either `"fresh"` (with cached `result`) or `"stale"`.
+
+- For **fresh** scripts: use the cached `result` directly — no need to re-run.
+- For **stale** scripts: run only those in a single bash command:
 
 ```bash
-python3 "$CLAUDE_PLUGIN_ROOT/scripts/analyze-transcripts.py"
+echo '===CONFIG===' && python3 "${CLAUDE_PLUGIN_ROOT}/scripts/analyze-config.py" 2>&1; echo '===TRANSCRIPTS===' && python3 "${CLAUDE_PLUGIN_ROOT}/scripts/analyze-transcripts.py" 2>&1; echo '===MEMORY===' && python3 "${CLAUDE_PLUGIN_ROOT}/scripts/analyze-memory.py" 2>&1
 ```
 
-```bash
-python3 "$CLAUDE_PLUGIN_ROOT/scripts/analyze-memory.py"
-```
+Only include scripts that are stale in the command above — skip fresh ones. If all three are fresh, skip this bash command entirely.
 
-If any script fails, report the error but continue with the others. The config audit provides value even without transcripts.
+If any script fails, use the others. The config audit provides value even without transcripts.
 
 ## Step 3: Present status summary
 
-Using the config audit results, present a brief health overview:
+Using the config audit results, present a **formatted health overview** as a table:
 
-- **Context budget**: CLAUDE.md line count, number of rules/skills/agents/hooks. Warn if tier 1 content exceeds 150 lines.
-- **Gaps**: Missing formatter/linter hooks, unreferenced docs. Only mention gaps that exist — don't list things that are fine.
-- **Placement issues**: Domain-specific entries in CLAUDE.md, rules without path scoping, verbose entries that should be reference docs. Only mention if found.
+```
+| Metric           | Value | Status |
+|------------------|-------|--------|
+| CLAUDE.md lines  | 43    | ✓      |
+| Rules            | 3     | ✓      |
+| Skills/Commands  | 2     | ✓      |
+| Hooks            | 0     | ⚠ gaps |
+| Agents           | 0     | ✓      |
+```
 
-Keep this section concise — a few lines, not a wall of text. If everything looks healthy, say so in one sentence and move on.
+Below the table, list only actionable items:
+- **Gaps**: Missing formatter/linter hooks, unreferenced docs.
+- **Placement issues**: Domain-specific entries in CLAUDE.md, rules without path scoping, verbose entries that should be reference docs.
+
+Keep this concise. If everything is healthy, say so in one sentence.
 
 ## Step 4: Present pattern findings
 
-Using the transcript and memory analysis results:
+Using the transcript and memory analysis results, show findings in a compact format:
 
 - **Repeated prompts**: Show the top patterns with occurrence counts and example messages. These are skill candidates.
 - **Corrections**: If any were detected, show the pattern and evidence.
 - **Post-action patterns**: If any were detected, show the command and context.
 - **Memory promotions**: Notes that should be upgraded to proper artifacts.
 
-If no transcript patterns were found (no session history, or patterns below threshold), say so briefly and move on. Do not present empty categories.
+If no transcript patterns were found, say so briefly. Do not present empty categories.
 
 ## Step 5: Build the proposal list
 
@@ -62,11 +85,17 @@ Merge findings into proposals. Each proposal needs:
 - `id`: Descriptive slug (e.g., `start-dev-server-skill`, `auto-format-hook`)
 - `type`: One of `claude_md_entry`, `rule`, `skill`, `skill_update`, `hook`, `agent`, `reference_doc`
 - `confidence`: `high` or `medium`
+- `impact`: Rate as `high`, `medium`, or `low` based on how much this would improve the user's workflow:
+  - **high**: Saves significant manual effort (e.g., automating a multi-step workflow repeated 10+ times) or fixes a real config problem
+  - **medium**: Meaningful improvement (e.g., auto-linting, promoting repeated corrections to rules)
+  - **low**: Minor cleanup or cosmetic (e.g., removing stale entries, reordering config)
 - `description`: What this proposal does
 - `suggested_content`: Draft content for the artifact
 - `suggested_path`: Where the artifact would be placed
 - `evidence`: Array of evidence items
 - `status`: `"pending"`
+
+**Drop low-impact proposals.** Only present high and medium impact proposals. If a proposal is purely cosmetic or nitpicky, skip it.
 
 Apply minimum evidence thresholds:
 
@@ -77,7 +106,7 @@ Apply minimum evidence thresholds:
 | Skill | 4 similar prompts | 3 sessions |
 | Hook | 5 manual repetitions | 3 sessions |
 
-**Exceptions:** Config gap suggestions and memory promotions are included regardless of session evidence.
+**Exceptions:** Config gap suggestions (missing hooks for detected linter/formatter) are included regardless of session evidence, but only at medium or high impact.
 
 **Cross-reference with existing artifacts:** The config audit returns three inventory lists:
 - `existing_skills`: Skills (`.claude/skills/*/SKILL.md`) and legacy commands (`.claude/commands/*.md`), each with name, description, full content, path, and format (`"skill"` or `"legacy_command"`).
@@ -97,29 +126,29 @@ Filter out any proposals whose pattern matches a dismissed entry in `dismissed.j
 
 If there are no proposals, tell the user their setup looks good and stop.
 
-If there are proposals, present them **one at a time**, highest confidence first. For each proposal:
+Present all proposals together using a **single `AskUserQuestion` call** with one question per proposal (up to 4 proposals per call). For each proposal, the question should include:
 
-### 6a. Show the evidence
-State what was observed. Include specifics:
-- For repeated prompts: quote the user's actual messages and how many sessions
-- For config gaps: state what was detected (e.g., "Prettier is configured but no auto-format hook exists")
-- For memory notes: quote the entry
-- For corrections: quote the user's messages with dates
+- A one-line summary with impact level (e.g., "**[High]** Add auto-lint hook — ESLint configured but no PostToolUse hook exists")
+- The artifact type and target path
 
-### 6b. Show the preview
-Display the exact artifact content that would be generated in a code block. State:
-- The artifact type
-- The file path where it would be placed
-- For skills/agents: note "This is a draft — test and refine"
-
-### 6c. Ask for a decision
-
-Use the `AskUserQuestion` tool to present a structured choice. The question should summarize the proposal (e.g., "Create a '/dev-server' skill from 11 repeated prompts?") with these options:
-
+Each question should have these options:
 - **Approve** (description: "Generate and place the artifact now")
 - **Modify** (description: "I'll tell you what to change first")
 - **Skip** (description: "Keep for next time")
 - **Never** (description: "Dismiss permanently — don't suggest this again")
+
+If there are more than 4 proposals, batch them into multiple AskUserQuestion calls of up to 4 each.
+
+Before asking, show a summary table of all proposals:
+
+```
+| # | Impact | Type | Proposal |
+|---|--------|------|----------|
+| 1 | High   | hook | Add auto-lint hook for ESLint |
+| 2 | Medium | rule | Extract framework details from CLAUDE.md |
+```
+
+Then show the preview (artifact content in a code block) for each proposal, so the user can see what they're approving.
 
 If `AskUserQuestion` is not available, fall back to presenting the options conversationally and waiting for the user's response.
 
@@ -149,7 +178,7 @@ For each approved proposal:
 4. Record in `.claude/forge/history/applied.json`
 5. Update feedback stats:
    ```bash
-   python3 "$CLAUDE_PLUGIN_ROOT/scripts/update-analyzer-stats.py" --category <category> --outcome approved --theme-hash <proposal-id>
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/update-analyzer-stats.py" --category <category> --outcome approved --theme-hash <proposal-id>
    ```
 
 For **modified** proposals: ask what the user wants to change, adjust the content, show the updated preview, then ask for approval again.
@@ -161,10 +190,14 @@ For **never** proposals:
 2. Append to `.claude/forge/dismissed.json` with a timestamp
 3. Update feedback stats:
    ```bash
-   python3 "$CLAUDE_PLUGIN_ROOT/scripts/update-analyzer-stats.py" --category <category> --outcome suppressed --theme-hash <proposal-id>
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/update-analyzer-stats.py" --category <category> --outcome suppressed --theme-hash <proposal-id>
    ```
 
 ## Step 8: Save and summarize
+
+Only save proposals if there were any (skip the file write if there were no proposals to record).
+
+Before writing, tell the user: "Saving proposal records — this lets Forge remember what you've reviewed so it won't re-suggest dismissed items or lose skipped proposals between sessions."
 
 Write the full proposal list (with updated statuses) to `.claude/forge/proposals/pending.json`:
 ```bash

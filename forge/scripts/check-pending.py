@@ -7,8 +7,8 @@ nudge if the threshold is met. Otherwise outputs nothing.
 
 Nudge levels (configured via /forge:settings):
 - quiet:    Never nudge. Output nothing.
-- balanced: Nudge after 5+ unanalyzed sessions (default).
-- eager:    Nudge after 2+ unanalyzed sessions.
+- balanced: Nudge when pending proposals exist, or after 5+ unanalyzed sessions (default).
+- eager:    Nudge when pending proposals exist, or after 2+ unanalyzed sessions.
 
 Usage:
     python3 check-pending.py [--project-root /path]

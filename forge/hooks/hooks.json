@@ -5,8 +5,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PLUGIN_ROOT/scripts/log-session.sh\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/log-session.sh\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cache-manager.py\" --update --plugin-root \"${CLAUDE_PLUGIN_ROOT}\"",
+            "timeout": 15
           }
         ]
       }
