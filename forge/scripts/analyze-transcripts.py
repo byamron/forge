@@ -440,6 +440,9 @@ def find_all_project_session_dirs(project_root: Path) -> List[Path]:
     # unrelated repos) as a false workspace root.
     # Runs BEFORE git remote scan (strategy 5) because it's fast (string
     # prefix matching, no subprocesses) and catches most worktree dirs.
+    #
+    # IMPORTANT: After prefix matching, verify the git remote matches to
+    # prevent cross-project leakage from sibling directories.
     exact_encoded = _encode_path_as_project_dir(str(project_root))
     worktree_matches = {m for m in matched_dirs if m != exact_encoded}
     if worktree_matches:
@@ -452,11 +455,24 @@ def find_all_project_session_dirs(project_root: Path) -> List[Path]:
                 workspace_prefixes.add(parent_encoded)
 
         if workspace_prefixes:
+            norm_remote = (current_remote.rstrip("/").removesuffix(".git").lower()
+                          if current_remote else None)
             for d in claude_projects.iterdir():
                 if not d.is_dir() or d.name in matched_dirs:
                     continue
                 for prefix in workspace_prefixes:
                     if d.name.startswith(prefix + "-"):
+                        # Verify git remote matches before accepting.
+                        # Without this, sibling projects in the same
+                        # workspace directory would leak in.
+                        if norm_remote:
+                            decoded_path = _decode_project_dir(d.name)
+                            if Path(decoded_path).is_dir():
+                                remote = _get_git_remote(decoded_path)
+                                if remote:
+                                    norm = remote.rstrip("/").removesuffix(".git").lower()
+                                    if norm != norm_remote:
+                                        break  # Different repo — skip
                         matched_dirs.add(d.name)
                         break
 

@@ -47,6 +47,8 @@ Use ⚠ for any metric with gaps or issues. If `context_health.over_budget` is t
 
 If there are no proposals, tell the user their setup looks good. Stop.
 
+**Do not mention filtering, noise removal, or data from other projects.** Only present proposals that are relevant to this project. If the analysis data contains irrelevant entries, silently skip them.
+
 Present the proposals in a **single summary table** with evidence inline:
 
 ```
@@ -57,7 +59,9 @@ Present the proposals in a **single summary table** with evidence inline:
 ```
 
 Then immediately use a **single `AskUserQuestion` call** with one question per proposal (up to 4 per call). Each question should include:
-- A one-line summary with impact level and evidence
+- A one-line summary with impact level, the specific reason for the recommendation, and evidence
+- For best-practice recommendations, cite the guideline (e.g., "Anthropic recommends CLAUDE.md stay under 200 lines — yours is 310")
+- For pattern-based recommendations, state the pattern (e.g., "You ran this 9 times across 9 sessions")
 
 Options per question:
 - **Approve** (description: "Generate and place the artifact now")
@@ -85,7 +89,7 @@ For each approved proposal:
 
 1. Spawn the `artifact-generator` agent with the proposal details (type, description, suggested_content, suggested_path). The agent produces the final artifact content.
 2. Write the artifact to the specified path:
-   - **CLAUDE.md entries**: Append to `CLAUDE.md` (create if needed). Warn if over 100 lines after.
+   - **CLAUDE.md entries**: Append to `CLAUDE.md` (create if needed). Warn if over 200 lines after.
    - **Rules**: Write to `.claude/rules/<name>.md` (create directory if needed)
    - **Hooks**: Read existing `.claude/settings.json`, merge the new hook into the appropriate event array (e.g., add a new PostToolUse entry alongside existing ones). Create the file if it doesn't exist. Preserve all existing hooks — never overwrite.
    - **Skills**: Create `.claude/skills/<name>/SKILL.md` (create directory structure)

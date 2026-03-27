@@ -16,7 +16,7 @@ Always use TypeScript strict mode. Enable `strict: true` in tsconfig.json.
 - Max 2 lines per entry
 - Must be actionable (imperative voice)
 - No markdown headers within entries
-- Total CLAUDE.md should stay under ~100 lines
+- Total CLAUDE.md should stay under 200 lines. Files over 200 lines consume more context and may reduce adherence. Upper bound ~500 lines — beyond that, move reference content to skills
 
 ## Rule (`.claude/rules/<name>.md`)
 
@@ -25,7 +25,8 @@ Always use TypeScript strict mode. Enable `strict: true` in tsconfig.json.
 **Template:**
 ```markdown
 ---
-path: "**/*.test.ts"
+paths:
+  - "**/*.test.ts"
 ---
 
 Use vitest for all test files.
@@ -35,8 +36,9 @@ Mock external services, never mock the database.
 ```
 
 **Validation:**
-- `path` frontmatter is optional but recommended for scoping
-- Path uses glob patterns (e.g., `**/*.tsx`, `src/api/**/*.ts`)
+- `paths` frontmatter (plural, YAML list) is optional but recommended for scoping
+- Rules with `paths` load only when Claude reads matching files. Rules without `paths` load at session start
+- Paths use glob patterns (e.g., `**/*.tsx`, `src/api/**/*.ts`)
 - One topic per file
 - Filename matches content topic
 - Content is concise — extract detailed guidance to reference docs
@@ -127,7 +129,7 @@ Mock external services, never mock the database.
 - Valid JSON
 - Matcher patterns: case-sensitive, no spaces around `|`
 - Handler type must be one of: `command`, `http`, `prompt`, `agent`
-- Timeout in seconds (default 10, max 60 for heavy operations)
+- Timeout in seconds. Defaults: command=600, http=30, prompt=30, agent=60
 - Commands should use `$CLAUDE_TOOL_INPUT_FILE_PATH` for file-specific hooks
 
 ## Skill (`.claude/skills/<name>/SKILL.md`)
@@ -166,8 +168,19 @@ You are running the [skill name] workflow. Follow these steps:
 [Clear imperative instructions]
 ```
 
+**Optional frontmatter fields:**
+- `argument-hint`: Hint text shown in slash command autocomplete
+- `user-invocable`: Whether the skill appears in slash command menu (default true)
+- `disable-model-invocation`: If true, skill is invisible to auto-triggering
+- `allowed-tools`: Tools the skill can use
+- `model`: Model override (`sonnet`, `opus`, `haiku`)
+- `effort`: Reasoning effort level (`low`, `medium`, `high`, `max`)
+- `context`: Additional context files to load
+- `agent`: Run as a subagent with these settings
+- `paths`: File patterns that trigger this skill
+
 **Validation:**
-- `name` must be kebab-case
+- `name` must be kebab-case, max 64 characters
 - `description` must be <1024 characters
 - No XML tags in frontmatter values
 - Description should include "Use when..." language
@@ -207,9 +220,21 @@ You are the [agent name]. Your role is to [primary responsibility].
 [What the agent should produce]
 ```
 
+**Optional frontmatter fields:**
+- `tools`: Specific tools the agent can use (inherits all if omitted)
+- `permissionMode`: `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan`
+- `skills`: Skill content injected at startup
+- `mcpServers`: MCP servers available to the subagent
+- `hooks`: Lifecycle hooks scoped to the subagent
+- `memory`: `user`, `project`, or `local`
+- `background`: Run as background task
+- `isolation`: `worktree` for git worktree isolation
+- `initialPrompt`: Auto-submitted first user turn when agent runs as main
+
 **Validation:**
-- `model`: typically `sonnet` for cost efficiency
-- `effort`: `low`, `medium`, or `high`
+- `name`: lowercase letters and hyphens
+- `model`: `sonnet`, `opus`, `haiku`, full model ID, or `inherit` (default: `inherit`)
+- `effort`: `low`, `medium`, `high`, or `max` (max is Opus only)
 - `maxTurns`: integer, keep low (3-10) to control cost
 - `disallowedTools`: list tools the agent should not use
 

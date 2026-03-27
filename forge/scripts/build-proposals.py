@@ -183,7 +183,8 @@ def _generate_rule_content(issue: Dict) -> str:
     content = issue.get("content", "")
     suggestion = issue.get("suggestion", "")
     return f"""---
-path: "**/*"
+paths:
+  - "**/*"
 ---
 
 {content}
@@ -202,7 +203,7 @@ def _build_from_budget(config: Dict) -> List[Dict]:
     tier1 = budget.get("estimated_tier1_lines", 0)
     placement_issues = config.get("placement_issues", [])
 
-    if lines > 150 or tier1 > 150:
+    if lines > 200 or tier1 > 200:
         # Count domain-specific entries that could be extracted
         extractable = [
             p for p in placement_issues
@@ -212,14 +213,14 @@ def _build_from_budget(config: Dict) -> List[Dict]:
         proposals.append({
             "id": "reduce-claude-md-size",
             "type": "reference_doc",
-            "impact": "high" if lines > 300 else "medium",
+            "impact": "high" if lines > 400 else "medium",
             "confidence": "high",
             "description": (
                 f"CLAUDE.md is {lines} lines — extract sections to "
                 f".claude/rules/ or .claude/references/ to reduce context weight"
             ),
             "evidence_summary": (
-                f"{lines} lines (budget: 150). "
+                f"{lines} lines (Anthropic recommends under 200). "
                 f"{n} domain-specific sections could be extracted."
             ),
             "suggested_content": "",  # LLM determines what to extract
@@ -451,7 +452,7 @@ def _build_context_health(config: Dict) -> Dict[str, Any]:
         "hooks_count": budget.get("hooks_count", 0),
         "agents_count": budget.get("agents_count", 0),
         "tier1_lines": budget.get("estimated_tier1_lines", 0),
-        "over_budget": budget.get("estimated_tier1_lines", 0) > 150,
+        "over_budget": budget.get("estimated_tier1_lines", 0) > 200,
         "tech_stack": tech.get("detected", []),
         "placement_note_count": len(placement),
     }
@@ -461,7 +462,7 @@ def _build_context_health(config: Dict) -> Dict[str, Any]:
     lines = health["claude_md_lines"]
     parts.append(f"CLAUDE.md: {lines} lines")
     if health["over_budget"]:
-        parts.append("(over 150-line budget)")
+        parts.append("(over 200-line budget)")
 
     counts = []
     for key, label in [("rules_count", "rules"), ("skills_count", "skills"),
