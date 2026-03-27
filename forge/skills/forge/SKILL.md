@@ -10,80 +10,26 @@ description: >
 
 You are running Forge, the Claude Code infrastructure optimizer. Follow these steps in order.
 
-## Step 1: Resolve plugin root and check cache
+## Step 1: Get proposals
 
-Run a single command that resolves the plugin directory and checks the analysis cache:
+Run a single command that resolves the plugin, runs any stale analysis, and returns ready-to-present proposals:
 
 ```bash
-FORGE_ROOT="${CLAUDE_PLUGIN_ROOT}"; if [ -z "$FORGE_ROOT" ]; then FORGE_ROOT=$(python3 -c "import json,pathlib; data=json.loads(pathlib.Path.home().joinpath('.claude/plugins/installed_plugins.json').read_text()); print(next((v[0]['installPath'] for k,v in data.get('plugins',{}).items() if k.startswith('forge@')), ''))" 2>/dev/null); fi; if [ -z "$FORGE_ROOT" ]; then echo 'ERROR: Could not locate Forge plugin'; exit 1; fi; echo "FORGE_ROOT=$FORGE_ROOT"; python3 "$FORGE_ROOT/scripts/cache-manager.py" --check --plugin-root "$FORGE_ROOT"
+FORGE_ROOT="${CLAUDE_PLUGIN_ROOT}"; if [ -z "$FORGE_ROOT" ]; then FORGE_ROOT=$(python3 -c "import json,pathlib; data=json.loads(pathlib.Path.home().joinpath('.claude/plugins/installed_plugins.json').read_text()); print(next((v[0]['installPath'] for k,v in data.get('plugins',{}).items() if k.startswith('forge@')), ''))" 2>/dev/null); fi; if [ -z "$FORGE_ROOT" ]; then echo 'ERROR: Could not locate Forge plugin'; exit 1; fi; python3 "$FORGE_ROOT/scripts/cache-manager.py" --proposals --plugin-root "$FORGE_ROOT"
 ```
 
 If the output starts with `ERROR`, tell the user the Forge plugin scripts could not be located and stop.
 
-Otherwise, parse the cache check output. Each script (`config`, `transcripts`, `memory`) will be either `"fresh"` (with cached `result`) or `"stale"`. Store the `FORGE_ROOT` path for subsequent steps.
+The output is a JSON object with:
+- `proposals`: Array of proposals, each with `id`, `type`, `impact`, `description`, `evidence_summary`, `suggested_content`, `suggested_path`, `status`
+- `context_health`: Summary of context budget and artifact counts
+- `stats`: How many sessions were analyzed, candidates found, etc.
 
-Also read `.claude/forge/proposals/pending.json` and `.claude/forge/dismissed.json` if they exist — you'll need pending proposals and dismissed patterns later.
+## Step 2: Present proposals
 
-## Step 2: Run stale analysis scripts
+If there are no proposals, show the context health one-liner and tell the user their setup looks good. Stop.
 
-If any scripts are `"stale"`, run only those in a single bash command (substitute the actual `FORGE_ROOT` path):
-
-```bash
-echo '===CONFIG===' && python3 "<FORGE_ROOT>/scripts/analyze-config.py" 2>&1; echo '===TRANSCRIPTS===' && python3 "<FORGE_ROOT>/scripts/analyze-transcripts.py" 2>&1; echo '===MEMORY===' && python3 "<FORGE_ROOT>/scripts/analyze-memory.py" 2>&1
-```
-
-Only include scripts that are stale — skip fresh ones. **If all three are fresh, skip this step entirely** (no bash command needed).
-
-If any script fails, use the others. The config audit provides value even without transcripts.
-
-## Step 3: Build the proposal list
-
-Merge findings into proposals. Each proposal needs:
-- `id`: Descriptive slug (e.g., `start-dev-server-skill`, `auto-format-hook`)
-- `type`: One of `claude_md_entry`, `rule`, `skill`, `skill_update`, `hook`, `agent`, `reference_doc`
-- `confidence`: `high` or `medium`
-- `impact`: Rate as `high`, `medium`, or `low` based on how much this would improve the user's workflow:
-  - **high**: Saves significant manual effort (e.g., automating a multi-step workflow repeated 10+ times) or fixes a real config problem
-  - **medium**: Meaningful improvement (e.g., auto-linting, promoting repeated corrections to rules)
-  - **low**: Minor cleanup or cosmetic (e.g., removing stale entries, reordering config)
-- `description`: What this proposal does
-- `suggested_content`: Draft content for the artifact
-- `suggested_path`: Where the artifact would be placed
-- `evidence`: Array of evidence items
-- `status`: `"pending"`
-
-**Drop low-impact proposals.** Only present high and medium impact proposals. If a proposal is purely cosmetic or nitpicky, skip it.
-
-Apply minimum evidence thresholds:
-
-| Artifact Type | Min Occurrences | Min Sessions |
-|---|---|---|
-| CLAUDE.md entry | 3 corrections | 2 sessions |
-| Rule | 3 corrections | 2 sessions |
-| Skill | 4 similar prompts | 3 sessions |
-| Hook | 5 manual repetitions | 3 sessions |
-
-**Exceptions:** Config gap suggestions (missing hooks for detected linter/formatter) are included regardless of session evidence, but only at medium or high impact.
-
-**Cross-reference with existing artifacts:** The config audit returns three inventory lists:
-- `existing_skills`: Skills (`.claude/skills/*/SKILL.md`) and legacy commands (`.claude/commands/*.md`), each with name, description, full content, path, and format (`"skill"` or `"legacy_command"`).
-- `existing_agents`: Agents (`.claude/agents/*.md`), each with name, description, full content, and path.
-- `existing_hooks`: Hooks from `.claude/settings.json`, each with event, matcher, type, command, and source path.
-
-Before proposing any new artifact, check the relevant inventory:
-- **Skills**: Read the full content of existing skills/commands. If one already handles the pattern, do not propose a duplicate. If it could be improved, propose a `skill_update` instead. If a legacy command covers the pattern, consider proposing migration to the modern skills format.
-- **Agents**: If a proposed agent overlaps with an existing agent's responsibilities, suppress or propose a modification.
-- **Hooks**: If a proposed hook duplicates an existing hook (same event + similar matcher/command), suppress it. If the existing hook could be extended (e.g., adding a file type to the matcher), propose a modification.
-
-Combine these new proposals with any pending proposals from Step 1. Deduplicate by comparing descriptions and evidence — don't propose the same thing twice.
-
-Filter out any proposals whose pattern matches a dismissed entry in `dismissed.json`.
-
-## Step 4: Review proposals with the user
-
-If there are no proposals, tell the user their setup looks good and stop.
-
-Present the proposals in a **single summary table** with evidence inline — this is the only presentation before asking:
+Present the proposals in a **single summary table** with evidence inline:
 
 ```
 | # | Impact | Type | Proposal | Evidence |
@@ -109,7 +55,7 @@ After receiving decisions, show the draft artifact content (in a code block with
 
 **Always wait for explicit user approval before writing any files.** Never auto-apply proposals.
 
-## Step 5: Apply approved proposals
+## Step 3: Apply approved proposals
 
 For each approved proposal:
 
@@ -148,7 +94,7 @@ For **never** proposals:
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/update-analyzer-stats.py" --category <category> --outcome suppressed --theme-hash <proposal-id>
    ```
 
-## Step 6: Save and summarize
+## Step 4: Save and summarize
 
 Only save proposals if there were any (skip the file write if there were no proposals to record).
 
@@ -169,10 +115,4 @@ Give a brief summary:
 
 ### Context health
 
-After the proposal summary, show a brief **health notes** section for informational context health items that didn't warrant proposals. Use the config audit data:
-
-```
-Health: CLAUDE.md is 43 lines (under 150 budget). 3 rules, 2 skills, 0 hooks, 0 agents.
-```
-
-Only include notes worth mentioning — placement suggestions, context budget warnings, or observations. If everything is clean, skip this section entirely.
+After the summary, show the `context_health.summary` from the Step 1 output. Only show if it contains useful information (budget warnings, placement notes). If everything is clean, skip this.

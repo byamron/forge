@@ -350,6 +350,100 @@ def update_cache(root: Path, plugin_root: Optional[str] = None) -> Dict[str, str
 
 
 # ---------------------------------------------------------------------------
+# Proposal building from cache
+# ---------------------------------------------------------------------------
+
+def _build_proposals_from_cache(root: Path,
+                                 plugin_root: Optional[str] = None) -> None:
+    """Run build-proposals.py using cached analysis results."""
+    # Collect cached results
+    config_cache = read_cache(root, "config")
+    transcripts_cache = read_cache(root, "transcripts")
+    memory_cache = read_cache(root, "memory")
+
+    config_result = config_cache["result"] if config_cache else {}
+    transcripts_result = (transcripts_cache["result"]
+                          if transcripts_cache else {})
+    memory_result = memory_cache["result"] if memory_cache else {}
+
+    # Write combined JSON to a temp file for build-proposals.py
+    combined = {
+        "config": config_result,
+        "transcripts": transcripts_result,
+        "memory": memory_result,
+    }
+
+    cdir = cache_dir(root)
+    cdir.mkdir(parents=True, exist_ok=True)
+    combined_path = cdir / "combined-analysis.json"
+    combined_path.write_text(json.dumps(combined), encoding="utf-8")
+
+    # Run build-proposals
+    if plugin_root:
+        script_path = Path(plugin_root) / "scripts" / "build-proposals.py"
+    else:
+        script_path = Path(__file__).parent / "build-proposals.py"
+
+    dismissed_path = root / ".claude" / "forge" / "dismissed.json"
+    pending_path = root / ".claude" / "forge" / "proposals" / "pending.json"
+
+    cmd = [
+        "python3", str(script_path),
+        "--combined", str(combined_path),
+    ]
+    if dismissed_path.is_file():
+        cmd.extend(["--dismissed", str(dismissed_path)])
+    if pending_path.is_file():
+        cmd.extend(["--pending", str(pending_path)])
+
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=5, cwd=str(root)
+        )
+        if proc.returncode == 0:
+            proposals_path = cdir / "proposals.json"
+            proposals_path.write_text(proc.stdout, encoding="utf-8")
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+
+
+def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, Any]:
+    """Get proposals: use cached if available, otherwise build fresh.
+
+    This is the single entry point for /forge — returns ready-to-present
+    proposals plus context health, with all analysis cached.
+    """
+    # First, ensure analysis cache is fresh
+    statuses = update_cache(root, plugin_root)
+
+    # Check if we have cached proposals
+    proposals_path = cache_dir(root) / "proposals.json"
+    try:
+        proposals = json.loads(
+            proposals_path.read_text(encoding="utf-8")
+        )
+        if isinstance(proposals, dict) and "proposals" in proposals:
+            proposals["cache_status"] = statuses
+            return proposals
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    # Build proposals fresh
+    _build_proposals_from_cache(root, plugin_root)
+    try:
+        proposals = json.loads(
+            proposals_path.read_text(encoding="utf-8")
+        )
+        if isinstance(proposals, dict):
+            proposals["cache_status"] = statuses
+            return proposals
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    return {"proposals": [], "context_health": {}, "cache_status": statuses}
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -360,6 +454,8 @@ def main():
                        help="Check cache freshness, output status JSON")
     group.add_argument("--update", action="store_true",
                        help="Run stale scripts and update cache")
+    group.add_argument("--proposals", action="store_true",
+                       help="Get ready-to-present proposals (runs analysis if needed)")
     parser.add_argument("--project-root", type=str, default=None)
     parser.add_argument("--plugin-root", type=str, default=None)
     args = parser.parse_args()
@@ -378,7 +474,13 @@ def main():
         sys.stdout.write("\n")
     elif args.update:
         statuses = update_cache(root, plugin_root)
+        # After updating caches, build proposals
+        _build_proposals_from_cache(root, plugin_root)
         json.dump(statuses, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+    elif args.proposals:
+        result = get_proposals(root, plugin_root)
+        json.dump(result, sys.stdout, indent=2)
         sys.stdout.write("\n")
 
 
