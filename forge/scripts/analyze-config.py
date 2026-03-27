@@ -16,7 +16,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -213,12 +213,18 @@ def compute_context_budget(root: Path):
 
     # Agents
     agents_dir = root / ".claude" / "agents"
+    agents_inventory: List[Dict[str, str]] = []
     if agents_dir.is_dir():
-        budget["agents_count"] = sum(
-            1 for f in agents_dir.iterdir() if f.suffix == ".md" and f.is_file()
-        )
+        for f in sorted(agents_dir.iterdir()):
+            if f.is_file() and f.suffix == ".md":
+                info = _parse_skill(f)  # same frontmatter format as skills
+                if info:
+                    info["format"] = "agent"
+                    agents_inventory.append(info)
+    budget["agents_count"] = len(agents_inventory)
 
     # Hooks -- from settings.json (project-level and user-level)
+    hooks_inventory: List[Dict[str, Any]] = []
     hooks_count = 0
     for settings_path in [
         root / ".claude" / "settings.json",
@@ -228,13 +234,23 @@ def compute_context_budget(root: Path):
         if data and isinstance(data, dict):
             hooks_sec = data.get("hooks", {})
             if isinstance(hooks_sec, dict):
-                for event_hooks in hooks_sec.values():
+                for event_name, event_hooks in hooks_sec.items():
                     if isinstance(event_hooks, list):
                         for group in event_hooks:
                             if isinstance(group, dict):
+                                matcher = group.get("matcher", "")
                                 inner = group.get("hooks", [])
                                 if isinstance(inner, list):
                                     hooks_count += len(inner)
+                                    for hook in inner:
+                                        if isinstance(hook, dict):
+                                            hooks_inventory.append({
+                                                "event": event_name,
+                                                "matcher": matcher,
+                                                "type": hook.get("type", ""),
+                                                "command": hook.get("command", ""),
+                                                "source": str(settings_path),
+                                            })
                                 else:
                                     hooks_count += 1
                     elif isinstance(event_hooks, dict):
@@ -245,7 +261,7 @@ def compute_context_budget(root: Path):
         budget["claude_md_lines"] + budget["claude_local_md_lines"]
     )
 
-    return budget, skills_inventory
+    return budget, skills_inventory, agents_inventory, hooks_inventory
 
 
 # ---------------------------------------------------------------------------
@@ -628,7 +644,9 @@ def main():
         sys.exit(1)
 
     try:
-        budget, skills_inventory = compute_context_budget(root)
+        budget, skills_inventory, agents_inventory, hooks_inventory = (
+            compute_context_budget(root)
+        )
         tech_stack = detect_tech_stack(root)
         gaps = find_gaps(root, tech_stack)
         placement_issues = find_placement_issues(root)
@@ -638,6 +656,8 @@ def main():
             "project_root": str(root),
             "context_budget": budget,
             "existing_skills": skills_inventory,
+            "existing_agents": agents_inventory,
+            "existing_hooks": hooks_inventory,
             "tech_stack": tech_stack,
             "gaps": gaps,
             "placement_issues": placement_issues,
