@@ -36,23 +36,7 @@ Only include scripts that are stale — skip fresh ones. **If all three are fres
 
 If any script fails, use the others. The config audit provides value even without transcripts.
 
-## Step 3: Present health overview
-
-Using the config audit results, show a **brief health table**:
-
-```
-| Metric           | Value | Status |
-|------------------|-------|--------|
-| CLAUDE.md lines  | 43    | ✓      |
-| Rules            | 3     | ✓      |
-| Skills/Commands  | 2     | ✓      |
-| Hooks            | 0     | ⚠      |
-| Agents           | 0     | ✓      |
-```
-
-If everything is healthy, say so in one sentence. Do not list individual gaps or patterns here — those become proposals in the next step.
-
-## Step 4: Build the proposal list
+## Step 3: Build the proposal list
 
 Merge findings into proposals. Each proposal needs:
 - `id`: Descriptive slug (e.g., `start-dev-server-skill`, `auto-format-hook`)
@@ -95,7 +79,7 @@ Combine these new proposals with any pending proposals from Step 1. Deduplicate 
 
 Filter out any proposals whose pattern matches a dismissed entry in `dismissed.json`.
 
-## Step 5: Review proposals with the user
+## Step 4: Review proposals with the user
 
 If there are no proposals, tell the user their setup looks good and stop.
 
@@ -125,7 +109,7 @@ After receiving decisions, show the draft artifact content (in a code block with
 
 **Always wait for explicit user approval before writing any files.** Never auto-apply proposals.
 
-## Step 6: Apply approved proposals
+## Step 5: Apply approved proposals
 
 For each approved proposal:
 
@@ -164,7 +148,7 @@ For **never** proposals:
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/update-analyzer-stats.py" --category <category> --outcome suppressed --theme-hash <proposal-id>
    ```
 
-## Step 7: Save and summarize
+## Step 6: Save and summarize
 
 Only save proposals if there were any (skip the file write if there were no proposals to record).
 
@@ -182,3 +166,13 @@ Give a brief summary:
 - How many were skipped (will appear next time)
 - How many were dismissed
 - If artifacts were created, remind the user to test them
+
+### Health notes
+
+After the proposal summary, show a brief **health notes** section for informational items that didn't warrant proposals. Use the config audit data:
+
+```
+Health: CLAUDE.md is 43 lines (under 150 budget). 3 rules, 2 skills, 0 hooks, 0 agents.
+```
+
+Only include notes worth mentioning — placement suggestions, context budget warnings, or observations. If everything is clean, skip this section entirely.
