@@ -12,7 +12,6 @@ Usage:
 import argparse
 import datetime
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -56,7 +55,7 @@ def _glob_exists(directory: Path, pattern: str) -> bool:
     return any(True for _ in directory.glob(pattern))
 
 
-def _parse_skill(skill_path: Path) -> Optional[Dict[str, str]]:
+def _parse_skill(skill_path: Path) -> Optional[Dict[str, Any]]:
     """Parse a SKILL.md file, returning name, description, full content, and path.
 
     Uses simple string splitting for frontmatter (no pyyaml dependency).
@@ -120,7 +119,7 @@ def _parse_skill(skill_path: Path) -> Optional[Dict[str, str]]:
     }
 
 
-def _parse_legacy_command(cmd_path: Path) -> Optional[Dict[str, str]]:
+def _parse_legacy_command(cmd_path: Path) -> Optional[Dict[str, Any]]:
     """Parse a legacy .claude/commands/*.md file.
 
     These predate the skills format but still work in Claude Code.
@@ -196,7 +195,7 @@ def compute_context_budget(root: Path):
     # Skills (SKILL.md files) and legacy commands (.claude/commands/*.md)
     skills_dir = root / ".claude" / "skills"
     commands_dir = root / ".claude" / "commands"
-    skills_inventory: List[Dict[str, str]] = []
+    skills_inventory: List[Dict[str, Any]] = []
     if skills_dir.is_dir():
         for f in sorted(skills_dir.rglob("SKILL.md")):
             if f.is_file():
@@ -213,7 +212,7 @@ def compute_context_budget(root: Path):
 
     # Agents
     agents_dir = root / ".claude" / "agents"
-    agents_inventory: List[Dict[str, str]] = []
+    agents_inventory: List[Dict[str, Any]] = []
     if agents_dir.is_dir():
         for f in sorted(agents_dir.iterdir()):
             if f.is_file() and f.suffix == ".md":

@@ -60,7 +60,7 @@ If no transcript patterns were found (no session history, or patterns below thre
 
 Merge findings into proposals. Each proposal needs:
 - `id`: Descriptive slug (e.g., `start-dev-server-skill`, `auto-format-hook`)
-- `type`: One of `claude_md_entry`, `rule`, `skill`, `hook`, `agent`, `reference_doc`
+- `type`: One of `claude_md_entry`, `rule`, `skill`, `skill_update`, `hook`, `agent`, `reference_doc`
 - `confidence`: `high` or `medium`
 - `description`: What this proposal does
 - `suggested_content`: Draft content for the artifact
@@ -135,6 +135,7 @@ For each approved proposal:
    - **Rules**: Write to `.claude/rules/<name>.md` (create directory if needed)
    - **Hooks**: Read existing `.claude/settings.json`, merge the new hook into the appropriate event array (e.g., add a new PostToolUse entry alongside existing ones). Create the file if it doesn't exist. Preserve all existing hooks — never overwrite.
    - **Skills**: Create `.claude/skills/<name>/SKILL.md` (create directory structure)
+   - **Skill updates**: Edit the existing file at `suggested_path`. Show a diff of what changed. If the existing artifact is a legacy command (`.claude/commands/*.md`), migrate it to `.claude/skills/<name>/SKILL.md` and delete the old file.
    - **Agents**: Write to `.claude/agents/<name>.md`
    - **Reference docs**: Write to `.claude/references/<name>.md`. Add a pointer line to CLAUDE.md: `For detailed X conventions, see .claude/references/Y.md`
    - All artifacts go to project-level (`.claude/`), never user-level (`~/.claude/`).

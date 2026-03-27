@@ -262,3 +262,17 @@ Key changes:
 **Key constraint preserved:** The plugin always asks explicit permission before writing any files. Proposals are presented with full evidence and a preview of what would be generated. The user must approve each one individually.
 
 **AskUserQuestion integration:** The skill instructs Claude to use the `AskUserQuestion` tool (Claude Agent SDK built-in) to present structured multiple-choice options for each proposal (Approve/Modify/Skip/Never). This provides a cleaner UI than free-text conversation when available. Falls back to conversational asking if the tool isn't available. Limitation: 1-4 questions with 2-4 options each, not available in subagents.
+
+---
+
+## 2026-03-27: Full artifact inventory with duplicate/overlap detection
+
+**Decision:** The config auditor now returns full inventories of existing skills (including legacy `.claude/commands/*.md`), agents, and hooks — with complete file content, not just counts. The `/forge` skill cross-references these inventories before proposing new artifacts.
+
+**Why:** Without cross-referencing, the plugin would propose a new skill for a pattern already handled by an existing skill or legacy command. Discovered this when the transcript analyzer flagged "start a dev server and send a link" as a skill candidate in a project that already had a `/link` command doing exactly that. Names and descriptions alone aren't enough — the full body content is needed to determine if the pattern is truly covered or if there's a gap the existing artifact misses.
+
+**Scope:** Skills and legacy commands return name, description, full content, path, and format. Agents return the same fields. Hooks return event, matcher, type, command, and source path. A new `skill_update` proposal type handles modifications to existing skills, including migration from legacy commands to modern skills format.
+
+**Alternatives considered:**
+- Name + description only — rejected because the description is a summary; the actual behavior lives in the body instructions.
+- Scanning only `.claude/skills/` — rejected because legacy `.claude/commands/` files still work and are common in existing projects.
