@@ -138,4 +138,3 @@ Give a brief summary:
 - How many were skipped (will appear next time)
 - How many were dismissed
 - If artifacts were created, remind the user to test them
-
