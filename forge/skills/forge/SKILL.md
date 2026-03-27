@@ -36,9 +36,9 @@ Only include scripts that are stale — skip fresh ones. **If all three are fres
 
 If any script fails, use the others. The config audit provides value even without transcripts.
 
-## Step 3: Present status summary
+## Step 3: Present health overview
 
-Using the config audit results, present a **formatted health overview** as a table:
+Using the config audit results, show a **brief health table**:
 
 ```
 | Metric           | Value | Status |
@@ -46,28 +46,13 @@ Using the config audit results, present a **formatted health overview** as a tab
 | CLAUDE.md lines  | 43    | ✓      |
 | Rules            | 3     | ✓      |
 | Skills/Commands  | 2     | ✓      |
-| Hooks            | 0     | ⚠ gaps |
+| Hooks            | 0     | ⚠      |
 | Agents           | 0     | ✓      |
 ```
 
-Below the table, list only actionable items:
-- **Gaps**: Missing formatter/linter hooks, unreferenced docs.
-- **Placement issues**: Domain-specific entries in CLAUDE.md, rules without path scoping, verbose entries that should be reference docs.
+If everything is healthy, say so in one sentence. Do not list individual gaps or patterns here — those become proposals in the next step.
 
-Keep this concise. If everything is healthy, say so in one sentence.
-
-## Step 4: Present pattern findings
-
-Using the transcript and memory analysis results, show findings in a compact format:
-
-- **Repeated prompts**: Show the top patterns with occurrence counts and example messages. These are skill candidates.
-- **Corrections**: If any were detected, show the pattern and evidence.
-- **Post-action patterns**: If any were detected, show the command and context.
-- **Memory promotions**: Notes that should be upgraded to proper artifacts.
-
-If no transcript patterns were found, say so briefly. Do not present empty categories.
-
-## Step 5: Build the proposal list
+## Step 4: Build the proposal list
 
 Merge findings into proposals. Each proposal needs:
 - `id`: Descriptive slug (e.g., `start-dev-server-skill`, `auto-format-hook`)
@@ -110,29 +95,21 @@ Combine these new proposals with any pending proposals from Step 1. Deduplicate 
 
 Filter out any proposals whose pattern matches a dismissed entry in `dismissed.json`.
 
-## Step 6: Review proposals with the user
+## Step 5: Review proposals with the user
 
 If there are no proposals, tell the user their setup looks good and stop.
 
-### 6a. Show a summary table
-
-Present a concise overview of all proposals — **do not show draft content yet**:
+Present the proposals in a **single summary table** with evidence inline — this is the only presentation before asking:
 
 ```
-| # | Impact | Type | Proposal |
-|---|--------|------|----------|
-| 1 | High   | hook | Add auto-lint hook for ESLint |
-| 2 | Medium | rule | Extract framework details from CLAUDE.md |
+| # | Impact | Type | Proposal | Evidence |
+|---|--------|------|----------|----------|
+| 1 | High   | hook | Auto-lint on Edit/Write | ESLint configured, no PostToolUse hook |
+| 2 | High   | skill | "start dev server" workflow | 9 occurrences across 9 sessions |
 ```
 
-Include a brief one-line evidence summary per row (e.g., "ESLint configured, no PostToolUse hook").
-
-### 6b. Ask for decisions
-
-Use a **single `AskUserQuestion` call** with one question per proposal (up to 4 per call). Each question should include:
-
-- A one-line summary with impact level (e.g., "**[High]** Add auto-lint hook — ESLint configured but no PostToolUse hook exists")
-- The artifact type and target path
+Then immediately use a **single `AskUserQuestion` call** with one question per proposal (up to 4 per call). Each question should include:
+- A one-line summary with impact level and evidence
 
 Options per question:
 - **Approve** (description: "Generate and place the artifact now")
@@ -144,13 +121,11 @@ If there are more than 4 proposals, batch them into multiple AskUserQuestion cal
 
 If `AskUserQuestion` is not available, fall back to presenting the options conversationally and waiting for the user's response.
 
-### 6c. Show drafts only for approved/modified proposals
-
-After receiving the user's decisions, show the draft artifact content (in a code block with file path) **only for proposals the user approved or wants to modify**. Do not show drafts for skipped or dismissed proposals.
+After receiving decisions, show the draft artifact content (in a code block with file path) **only for proposals the user approved or wants to modify**. Do not show drafts for skipped or dismissed proposals.
 
 **Always wait for explicit user approval before writing any files.** Never auto-apply proposals.
 
-## Step 7: Apply approved proposals
+## Step 6: Apply approved proposals
 
 For each approved proposal:
 
@@ -189,7 +164,7 @@ For **never** proposals:
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/update-analyzer-stats.py" --category <category> --outcome suppressed --theme-hash <proposal-id>
    ```
 
-## Step 8: Save and summarize
+## Step 7: Save and summarize
 
 Only save proposals if there were any (skip the file write if there were no proposals to record).
 
