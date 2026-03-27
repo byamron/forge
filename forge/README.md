@@ -4,9 +4,8 @@ Infrastructure architect for Claude Code. Analyzes your sessions, configuration,
 
 ## Commands
 
-- `/forge:status` — Audit your Claude Code configuration health. Works immediately with no session history.
-- `/forge:analyze` — Analyze recent sessions, config, and auto-memory to find improvement opportunities.
-- `/forge:optimize` — Review and apply pending proposals from a previous analysis.
+- `/forge` — Analyze your setup and apply improvements. Audits config health, detects workflow patterns from session history, and walks you through reviewing and applying suggestions.
+- `/forge:settings` — Configure nudge frequency and analysis depth.
 
 ## Installation
 
@@ -21,11 +20,10 @@ claude --plugin-dir ./forge
 
 ## How it works
 
-Forge operates in a **collect -> analyze -> propose -> generate -> place** pipeline:
+Forge operates in a **collect -> analyze -> review -> generate** pipeline:
 
 1. **Phase A** (zero tokens) — Python scripts scan your config, session transcripts, and auto-memory for patterns
-2. **Phase B** (targeted LLM) — A subagent confirms candidates and selects the right artifact type
-3. **Review** — You approve, modify, or skip each proposal
-4. **Generate** — Artifacts are created and placed in the correct locations
+2. **Review** — You see findings and approve, modify, or skip each proposal
+3. **Generate** — Artifacts are created and placed in the correct locations
 
-All analysis happens locally. No data leaves your machine.
+All analysis is scoped to the current project (and its worktrees). No data leaves your machine. Forge never writes files without your explicit approval.

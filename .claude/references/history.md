@@ -248,3 +248,15 @@ Key changes:
 **Why:** Users (and Claude itself) routinely put content in the wrong artifact type. A skill that says "always use functional components" in step 3 means that preference only applies when the skill is invoked — it should be a rule that's always active. A CLAUDE.md entry with a 15-line deployment workflow burns context budget every session when it should be a skill invoked on demand. Detecting and fixing these misplacements is core to Forge's value proposition of optimizing context architecture.
 
 **Implementation:** Split between script (structural signals — line counts, regex for command patterns, path-scope checks) and LLM pass (semantic understanding — distinguishing a behavioral preference from a workflow step). Added as Phase 2 Task 2.6.
+
+---
+
+## 2026-03-27: Unified `/forge` command replaces three separate skills
+
+**Decision:** Consolidated `/forge:status`, `/forge:analyze`, `/forge:optimize` into a single `/forge` command. `/forge:settings` remains separate.
+
+**Why:** The three-command split created unnecessary cognitive overhead. The user explicitly said "I don't want to have to learn a bunch of stuff." In practice, analyze→optimize was always run back-to-back, and status was just the first section of analyze. The only scenario for running optimize separately was to revisit pending proposals from a prior session — the unified command handles this by checking for pending proposals first.
+
+**Flow:** The unified command runs in order: (1) check for pending proposals, (2) run Phase A scripts, (3) present status summary, (4) present pattern findings, (5) merge into proposals, (6) present each proposal one at a time with approve/modify/skip/never options, (7) apply approved proposals via artifact-generator agent, (8) record decisions for feedback loop.
+
+**Key constraint preserved:** The plugin always asks explicit permission before writing any files. Proposals are presented with full evidence and a preview of what would be generated. The user must approve each one individually.
