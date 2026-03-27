@@ -116,3 +116,29 @@ Significant design and technical decisions, captured as the project evolves. Eac
 **Why:** Validated the parser against real `.jsonl` files from `~/.claude/projects/`. Discovered the actual format includes entry types (`user`, `assistant`, `queue-operation`), sidechain markers, system-injected messages, and interleaved tool_result entries. The parser's assumptions were broadly correct for the happy path but missed these edge cases.
 
 **Impact:** Post-action detection was essentially broken (high severity). Sidechain filtering prevents false positives when Forge itself runs (its own subagent conversations appear in transcripts).
+
+---
+
+## 2026-03-26: Cross-worktree transcript aggregation
+
+**Decision:** Replaced single-directory session lookup (`find_project_sessions_dir`) with multi-directory aggregation (`find_all_project_session_dirs`) that discovers all worktrees/checkouts of the same repo. Uses a 5-strategy layered approach:
+
+1. **Exact match** — encode current path, find in `~/.claude/projects/`
+2. **Git worktree list** — encode each active worktree path
+3. **Forward index** — check `~/.claude/forge/repo-index.json` (maintained by SessionEnd hook)
+4. **Git remote scan** — for dirs whose paths still exist, verify remote URL matches
+5. **Workspace-prefix heuristic** — from confirmed worktree matches (strategies 2-4), decode the path, use the parent directory as a workspace prefix, find all dirs with that prefix
+
+Also updated the SessionEnd hook (`log-session.sh`) to maintain a global repo index (`~/.claude/forge/repo-index.json`) mapping git remote URLs to project directory names.
+
+**Why:** The primary user works in Conductor, which spawns worktrees for parallel tasks. Each worktree gets its own `~/.claude/projects/` directory, so without aggregation, patterns are fragmented across 50-100+ isolated session buckets. Testing showed only 8% of project dirs still have resolvable git remotes (worktrees are cleaned up), and `history.jsonl` contains zero Conductor sessions (it only logs interactive prompts). The 5-strategy approach maximizes coverage: strategy 5 (workspace prefix) catches deleted worktrees by inferring the workspace root from confirmed matches.
+
+**Alternatives considered:**
+- **Do nothing**: Would miss most of the user's work (197/212 project dirs are Conductor worktrees).
+- **Option 1 only (retroactive)**: Gets ~30% of dirs via path existence + git remote. Misses 70% of deleted worktrees.
+- **Option 2 only (forward index)**: Perfect going forward but no retroactive coverage of existing data.
+- **Both options**: Chosen. Option 1 bootstraps with historical data, option 2 ensures completeness going forward, strategy 5 bridges the gap for deleted worktrees.
+
+**Key finding:** Claude Code project directory names are NOT hashed — they're the filesystem path with `/` replaced by `-` (e.g., `-Users-ben-conductor-workspaces-forge-salvador`). Path reconstruction is ambiguous when directory names contain hyphens (e.g., `portfolio-site`), solved with a greedy left-to-right algorithm that checks filesystem existence at each step.
+
+**Results:** portfolio-site: 112 dirs, 127 transcripts. PriorityAppXcode: 58 dirs, 75 transcripts. All under 1 second.
