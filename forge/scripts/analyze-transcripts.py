@@ -80,55 +80,226 @@ POST_ACTION_COMMANDS = [
 
 
 # ---------------------------------------------------------------------------
-# Project directory mapping
+# Project directory mapping (cross-worktree aware)
 # ---------------------------------------------------------------------------
 
-def find_project_sessions_dir(project_root: Path) -> Optional[Path]:
-    """Find the ~/.claude/projects/ directory for the given project root.
+def _encode_path_as_project_dir(path: str) -> str:
+    """Encode a filesystem path to Claude Code's project directory name format.
 
-    Claude Code stores sessions under ~/.claude/projects/<hash>/ where <hash>
-    is derived from the project path. We try multiple strategies to find it.
+    Claude Code replaces / with - and prepends a leading -:
+        /Users/ben/project -> -Users-ben-project
+    """
+    return path.replace("/", "-").replace("\\", "-")
+
+
+def _decode_project_dir(encoded: str) -> str:
+    """Best-effort reconstruction of filesystem path from project dir name.
+
+    Walks segments left-to-right, greedily joining with - when the joined
+    path exists on disk. Falls back to treating each - as a / separator.
+    """
+    parts = encoded.lstrip("-").split("-")
+    result = ["/"]
+    i = 0
+    while i < len(parts):
+        best_segment = parts[i]
+        best_j = i
+        for j in range(i + 1, len(parts)):
+            candidate = "-".join(parts[i : j + 1])
+            test_path = Path(*result, candidate)
+            if test_path.exists():
+                best_segment = candidate
+                best_j = j
+        result.append(best_segment)
+        i = best_j + 1
+    return str(Path(*result))
+
+
+def _strip_url_credentials(url: str) -> str:
+    """Remove embedded credentials from a URL (e.g., https://token@github.com/...)."""
+    from urllib.parse import urlparse, urlunparse
+
+    try:
+        parsed = urlparse(url)
+        if parsed.username or parsed.password:
+            netloc = parsed.hostname or ""
+            if parsed.port:
+                netloc += ":" + str(parsed.port)
+            return urlunparse(parsed._replace(netloc=netloc))
+    except Exception:
+        pass
+    return url
+
+
+def _get_git_remote(path: str) -> Optional[str]:
+    """Get the origin remote URL for a git repo, with credentials stripped."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", path, "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        url = result.stdout.strip()
+        if result.returncode == 0 and url:
+            return _strip_url_credentials(url)
+        return None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _get_repo_remote(project_root: Path) -> Optional[str]:
+    """Get the origin remote URL for the repo at project_root.
+
+    Walks up from project_root to find the git root.
+    """
+    path = project_root
+    while path != path.parent:
+        if (path / ".git").exists():
+            return _get_git_remote(str(path))
+        path = path.parent
+    return None
+
+
+def _load_repo_index() -> Dict[str, List[str]]:
+    """Load the Forge repo index (remote_url -> list of project dir names).
+
+    The index is maintained by the SessionEnd hook for forward coverage.
+    Stored at ~/.claude/forge/repo-index.json.
+    """
+    index_path = Path.home() / ".claude" / "forge" / "repo-index.json"
+    if not index_path.is_file():
+        return {}
+    try:
+        with open(index_path, "r") as f:
+            data = json.load(f)
+        # Validate structure: {str: [str, ...]}
+        if isinstance(data, dict):
+            return {
+                k: v for k, v in data.items() if isinstance(v, list)
+            }
+    except (json.JSONDecodeError, OSError):
+        pass
+    return {}
+
+
+def find_all_project_session_dirs(project_root: Path) -> List[Path]:
+    """Find all ~/.claude/projects/ directories for the given repo.
+
+    Aggregates across worktrees by matching on git remote URL. Uses
+    multiple strategies to maximize coverage:
+
+    1. Exact match: encode current path -> find in projects/
+    2. Git worktree list: encode each worktree path -> find in projects/
+    3. Forward index: check repo-index.json (maintained by SessionEnd hook)
+    4. Git remote scan: for dirs that still exist, check remote URL
+    5. Name heuristic: match dir name prefixes for deleted worktrees
+
+    Returns all matching project directories, sorted by modification time.
     """
     claude_projects = Path.home() / ".claude" / "projects"
     if not claude_projects.is_dir():
-        return None
+        return []
 
-    project_str = str(project_root)
+    matched_dirs = set()  # dir names we've matched
+    current_remote = _get_repo_remote(project_root)
 
-    # Strategy 1: Look for directory names that encode the project path
-    # Claude Code uses a path-based hash like "-Users-name-project"
-    normalized = project_str.replace("/", "-").replace("\\", "-").lstrip("-")
-    for d in claude_projects.iterdir():
-        if not d.is_dir():
-            continue
-        if d.name == normalized:
-            return d
+    # Strategy 1: Exact match for current path
+    encoded = _encode_path_as_project_dir(str(project_root))
+    exact = claude_projects / encoded
+    if exact.is_dir():
+        matched_dirs.add(encoded)
 
-    # Strategy 2: Partial match — directory name contains key segments
-    project_parts = project_str.strip("/").split("/")
-    for d in claude_projects.iterdir():
-        if not d.is_dir():
-            continue
-        # Check if the last 2-3 path components appear in the dir name
-        matches = sum(1 for p in project_parts[-3:] if p in d.name)
-        if matches >= 2:
-            return d
+    # Strategy 2: Git worktree list — finds active worktrees
+    if current_remote:
+        import subprocess
 
-    # Strategy 3: Look for any directory with .jsonl files
-    # (fallback — returns the most recently modified one)
-    best = None
-    best_time = 0
-    for d in claude_projects.iterdir():
-        if not d.is_dir():
-            continue
-        jsonl_files = list(d.glob("*.jsonl"))
-        if jsonl_files:
-            mtime = max(f.stat().st_mtime for f in jsonl_files)
-            if mtime > best_time:
-                best_time = mtime
-                best = d
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(project_root), "worktree", "list", "--porcelain"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.splitlines():
+                    if line.startswith("worktree "):
+                        wt_path = line[len("worktree ") :]
+                        wt_encoded = _encode_path_as_project_dir(wt_path)
+                        wt_dir = claude_projects / wt_encoded
+                        if wt_dir.is_dir():
+                            matched_dirs.add(wt_encoded)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
-    return best
+    # Strategy 3: Forward index (maintained by SessionEnd hook)
+    if current_remote:
+        repo_index = _load_repo_index()
+        # Normalize remote URL for comparison (strip trailing .git, lowercase)
+        norm_remote = current_remote.rstrip("/").removesuffix(".git").lower()
+        for indexed_remote, dir_names in repo_index.items():
+            norm_indexed = indexed_remote.rstrip("/").removesuffix(".git").lower()
+            if norm_indexed == norm_remote:
+                for name in dir_names:
+                    d = claude_projects / name
+                    if d.is_dir():
+                        matched_dirs.add(name)
+
+    # Strategy 4: Git remote scan — check dirs whose paths still exist on disk
+    if current_remote:
+        norm_remote = current_remote.rstrip("/").removesuffix(".git").lower()
+        for d in claude_projects.iterdir():
+            if not d.is_dir() or d.name in matched_dirs:
+                continue
+            decoded_path = _decode_project_dir(d.name)
+            if Path(decoded_path).is_dir():
+                remote = _get_git_remote(decoded_path)
+                if remote:
+                    norm = remote.rstrip("/").removesuffix(".git").lower()
+                    if norm == norm_remote:
+                        matched_dirs.add(d.name)
+
+    # Strategy 5: Workspace-prefix heuristic for deleted worktrees.
+    # From confirmed worktree matches (strategies 2-4), decode the path and
+    # use the parent directory as a workspace prefix. Other dirs with the
+    # same prefix are likely worktrees of the same repo that were cleaned up.
+    # Only uses matches OTHER than the exact current-project match (strategy 1)
+    # to avoid using the main checkout's parent dir (which may contain
+    # unrelated repos) as a false workspace root.
+    exact_encoded = _encode_path_as_project_dir(str(project_root))
+    worktree_matches = {m for m in matched_dirs if m != exact_encoded}
+    if worktree_matches:
+        workspace_prefixes = set()
+        for m in worktree_matches:
+            decoded = _decode_project_dir(m)
+            parent = Path(decoded).parent
+            if parent.is_dir():
+                parent_encoded = _encode_path_as_project_dir(str(parent))
+                workspace_prefixes.add(parent_encoded)
+
+        if workspace_prefixes:
+            for d in claude_projects.iterdir():
+                if not d.is_dir() or d.name in matched_dirs:
+                    continue
+                for prefix in workspace_prefixes:
+                    if d.name.startswith(prefix + "-"):
+                        matched_dirs.add(d.name)
+                        break
+
+    # Convert to Path objects, sorted by most recent modification time
+    result_dirs = []
+    for name in matched_dirs:
+        d = claude_projects / name
+        if d.is_dir():
+            # Use the most recent JSONL file's mtime as the directory's recency
+            jsonl_files = list(d.glob("*.jsonl"))
+            mtime = max((f.stat().st_mtime for f in jsonl_files), default=0)
+            result_dirs.append((mtime, d))
+
+    result_dirs.sort(key=lambda x: x[0], reverse=True)
+    return [d for _, d in result_dirs]
 
 
 # ---------------------------------------------------------------------------
@@ -216,19 +387,27 @@ def parse_transcript(filepath: Path) -> list:
     return messages
 
 
-def load_sessions(sessions_dir: Path, max_sessions: int) -> dict:
+def load_sessions(session_dirs: List[Path], max_sessions: int) -> dict:
     """Load up to max_sessions most recent session transcripts.
 
+    Aggregates JSONL files across multiple project directories (worktrees).
     Returns {session_id: [messages]} sorted by recency.
     """
-    jsonl_files = sorted(
-        sessions_dir.glob("*.jsonl"),
-        key=lambda f: f.stat().st_mtime,
-        reverse=True,
-    )[:max_sessions]
+    # Collect all JSONL files across all directories
+    all_files = []
+    for d in session_dirs:
+        for f in d.glob("*.jsonl"):
+            try:
+                all_files.append((f.stat().st_mtime, f))
+            except OSError:
+                continue
+
+    # Sort by recency, take the most recent max_sessions
+    all_files.sort(key=lambda x: x[0], reverse=True)
+    selected = all_files[:max_sessions]
 
     sessions = {}
-    for filepath in jsonl_files:
+    for _, filepath in selected:
         session_id = filepath.stem
         messages = parse_transcript(filepath)
         if messages:
@@ -459,11 +638,12 @@ def main():
         else Path.cwd().resolve()
     )
 
-    # Find session directory
-    sessions_dir = find_project_sessions_dir(root)
+    # Find all session directories (cross-worktree)
+    session_dirs = find_all_project_session_dirs(root)
 
     output = {
         "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "project_dirs_matched": len(session_dirs),
         "sessions_analyzed": 0,
         "session_date_range": "",
         "candidates": {
@@ -474,13 +654,13 @@ def main():
         },
     }
 
-    if sessions_dir is None:
+    if not session_dirs:
         json.dump(output, sys.stdout, indent=2)
         sys.stdout.write("\n")
         return
 
-    # Load sessions
-    sessions = load_sessions(sessions_dir, args.max_sessions)
+    # Load sessions (aggregated across all matched directories)
+    sessions = load_sessions(session_dirs, args.max_sessions)
     output["sessions_analyzed"] = len(sessions)
 
     if not sessions:
