@@ -316,3 +316,16 @@ Key changes:
 4. **Generated ESLint hook violated security rules.** `_generate_hook_content()` produced an ESLint command with `2>/dev/null || echo "..."`, violating the security rule against chained commands and redirects in hooks. Fixed by stripping to a clean single invocation.
 
 **Why:** Issues 1 and 3 are security fixes (shell injection, data isolation). Issue 2 is a correctness bug (users see outdated proposals). Issue 4 is a policy violation in generated artifacts.
+
+---
+
+## 2026-03-27: Marketplace distribution setup
+
+**Decision:** Added infrastructure for distributing Forge via the Claude Code private plugin marketplace: a `.claude-plugin/marketplace.json` manifest at the repo root, a `scripts/sync-version.py` build tool to keep the manifest version in sync with `forge/.claude-plugin/plugin.json`, a `.githooks/pre-commit` hook to automate the sync, and a `/forge:version` skill for users to verify their installed build.
+
+**Why:** Users need a way to install Forge without cloning the repo and pointing `--plugin-dir` at it. The marketplace is Claude Code's native distribution mechanism. The version sync tooling prevents the manifest and plugin from drifting apart — the pre-commit hook reads staged content from the git index (not the working tree) to ensure committed files are always consistent.
+
+**Key design choices:**
+- `sync-version.py` and the pre-commit hook live at the repo root (`scripts/`, `.githooks/`), not under `forge/`. They are developer build tooling, not part of the plugin runtime. The plugin remains self-contained under `forge/`.
+- `plugin.json` is the single source of truth for the version number. The marketplace manifest is a downstream consumer.
+- The `/forge:version` skill reads `installed_plugins.json` from `~/.claude/plugins/` to report the installed build, including git SHA and freshness.
