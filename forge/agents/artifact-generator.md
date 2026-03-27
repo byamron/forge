@@ -43,18 +43,19 @@ Before generating, read these reference files for detailed templates and guideli
 - No verbose explanations or rationale paragraphs
 - Pattern: command/convention + brief rationale if non-obvious
 - Example: `Always use vitest for testing, never jest.`
-- Before inserting, check current CLAUDE.md line count. If over 100 lines, warn and suggest demoting existing entries to rules first.
+- Before inserting, check current CLAUDE.md line count. If over 200 lines, warn and suggest demoting existing entries to rules first.
 
 ### Rules (`.claude/rules/*.md`)
 - One topic per file
 - Filename in kebab-case (e.g., `testing-conventions.md`)
-- Include `path` frontmatter when scoped to specific file types
+- Include `paths` frontmatter (plural, YAML list) when scoped to specific file types
 - Content follows same concise, imperative style as CLAUDE.md
 
 Example:
 ```markdown
 ---
-path: "**/*.test.ts"
+paths:
+  - "**/*.test.ts"
 ---
 
 Use vitest for all test files. Use `describe`/`it` blocks, not `test()`.
