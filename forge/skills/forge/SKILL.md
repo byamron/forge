@@ -84,7 +84,7 @@ After receiving decisions, show the draft artifact content (in a code block with
 
 ## Step 3: Generate and apply approved proposals
 
-The artifact templates and Anthropic best practices are already loaded in your context (via the `context` frontmatter). Use them to generate artifacts.
+Artifact templates and Anthropic best practices are already in your context. Use them to generate artifacts.
 
 For all approved proposals:
 
