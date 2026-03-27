@@ -79,9 +79,9 @@ Apply minimum evidence thresholds:
 
 **Exceptions:** Config gap suggestions and memory promotions are included regardless of session evidence.
 
-**Cross-reference with existing artifacts:** The config audit returns an `existing_skills` list with each skill's name and description. Before proposing a new skill, check whether an existing skill already handles the detected pattern. If it does:
+**Cross-reference with existing artifacts:** The config audit returns an `existing_skills` list with each skill's name, description, full content, and path. Before proposing a new skill, read the full content of existing skills and check whether one already handles the detected pattern. If it does:
 - Do **not** propose a new skill for the same pattern.
-- If the existing skill could be improved based on the evidence (e.g., the user's actual phrasing differs from the skill's behavior, or the skill could handle additional variants), propose a **modification** to the existing skill instead, with `type: "skill_update"` and `suggested_path` pointing to the existing skill's path.
+- If the existing skill could be improved based on the evidence (e.g., the user's actual phrasing reveals steps the skill misses, or the skill could handle additional variants), propose a **modification** to the existing skill instead, with `type: "skill_update"` and `suggested_path` pointing to the existing skill's path.
 
 Combine these new proposals with any pending proposals from Step 1. Deduplicate by comparing descriptions and evidence — don't propose the same thing twice.
 

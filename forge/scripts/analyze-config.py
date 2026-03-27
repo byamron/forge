@@ -56,11 +56,12 @@ def _glob_exists(directory: Path, pattern: str) -> bool:
     return any(True for _ in directory.glob(pattern))
 
 
-def _parse_skill_frontmatter(skill_path: Path) -> Optional[Dict[str, str]]:
-    """Extract name and description from a SKILL.md YAML frontmatter.
+def _parse_skill(skill_path: Path) -> Optional[Dict[str, str]]:
+    """Parse a SKILL.md file, returning name, description, full content, and path.
 
-    Uses simple string splitting (no pyyaml dependency).
-    Returns {"name": ..., "description": ..., "path": ...} or None.
+    Uses simple string splitting for frontmatter (no pyyaml dependency).
+    Returns the full file content so the LLM can compare existing skill
+    behavior against detected patterns, not just the description summary.
     """
     try:
         text = skill_path.read_text(encoding="utf-8", errors="replace")
@@ -108,10 +109,12 @@ def _parse_skill_frontmatter(skill_path: Path) -> Optional[Dict[str, str]]:
 
     name = frontmatter.get("name", skill_path.parent.name)
     description = frontmatter.get("description", "")
+    body = "\n".join(lines[end + 1:]).strip()
 
     return {
         "name": name,
         "description": description,
+        "content": body,
         "path": str(skill_path),
     }
 
@@ -154,7 +157,7 @@ def compute_context_budget(root: Path):
     if skills_dir.is_dir():
         for f in sorted(skills_dir.rglob("SKILL.md")):
             if f.is_file():
-                info = _parse_skill_frontmatter(f)
+                info = _parse_skill(f)
                 if info:
                     skills_inventory.append(info)
         budget["skills_count"] = len(skills_inventory)
