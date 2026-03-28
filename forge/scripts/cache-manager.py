@@ -412,6 +412,15 @@ def _build_proposals_from_cache(root: Path,
         pass
 
 
+def _extract_pairs_sample(root: Path) -> List[Dict[str, Any]]:
+    """Extract conversation_pairs_sample from the transcript cache."""
+    cached = read_cache(root, "transcripts")
+    if not cached:
+        return []
+    result = cached.get("result", {})
+    return result.get("conversation_pairs_sample", [])
+
+
 def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, Any]:
     """Get proposals: use cached if available, otherwise build fresh.
 
@@ -431,6 +440,7 @@ def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, An
             )
             if isinstance(proposals, dict) and "proposals" in proposals:
                 proposals["cache_status"] = statuses
+                proposals["conversation_pairs_sample"] = _extract_pairs_sample(root)
                 return proposals
         except (OSError, json.JSONDecodeError):
             pass
@@ -443,11 +453,13 @@ def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, An
         )
         if isinstance(proposals, dict):
             proposals["cache_status"] = statuses
+            proposals["conversation_pairs_sample"] = _extract_pairs_sample(root)
             return proposals
     except (OSError, json.JSONDecodeError):
         pass
 
-    return {"proposals": [], "context_health": {}, "cache_status": statuses}
+    return {"proposals": [], "context_health": {}, "cache_status": statuses,
+            "conversation_pairs_sample": []}
 
 
 # ---------------------------------------------------------------------------

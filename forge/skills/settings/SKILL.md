@@ -1,9 +1,10 @@
 ---
 name: settings
 description: >-
-  Configure Forge nudge behavior. Use when the user wants to change how
-  often Forge surfaces suggestions, or asks about Forge settings, or says
-  things like "nudge me less" or "be more proactive."
+  Configure Forge nudge behavior and analysis depth. Use when the user wants
+  to change how often Forge surfaces suggestions, toggle deep analysis mode,
+  or asks about Forge settings — things like "nudge me less", "be more
+  proactive", "turn on deep analysis", or "use standard mode."
 ---
 
 ## Step 0 — Resolve plugin root
@@ -21,18 +22,18 @@ Store the result — use it in place of `${CLAUDE_PLUGIN_ROOT}` for all script c
 Run:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read-settings.py"
+python3 "<FORGE_ROOT>/scripts/read-settings.py"
 ```
 
-This outputs the current settings as JSON, including the active nudge level and what it means.
+This outputs the current settings as JSON, including the active nudge level, analysis depth, and what they mean.
 
 ## Step 2 — Show the user their options
 
-First, show the current level clearly on its own line:
+### Nudge frequency
 
-> **Current level: balanced** (default)
+Show the current level clearly:
 
-Then present the three nudge levels in a table:
+> **Current nudge level: balanced** (default)
 
 | Level | When Forge nudges | Best for |
 |-------|-------------------|----------|
@@ -40,16 +41,35 @@ Then present the three nudge levels in a table:
 | **balanced** (default) | When you have pending proposals, or after 5+ sessions since last analysis | Most users |
 | **eager** | When you have any pending proposals, or after 2+ sessions since last analysis | Staying on top of config proactively |
 
+### Analysis depth
+
+Show the current depth clearly:
+
+> **Current analysis depth: standard** (default)
+
+| Depth | What it does | Best for |
+|-------|-------------|----------|
+| **standard** (default) | Script-only analysis — fast, zero token cost | API-billing users, quick checks |
+| **deep** | Scripts + background LLM pass — finds contextual patterns (position-aware signals, implicit preferences, approval gates) | Subscription users, thorough analysis |
+
+Note: You can also override per-invocation with `/forge --deep` or `/forge --quick` without changing the default.
+
 ## Step 3 — Apply the user's choice
 
-If the user picks a level (or describes what they want in natural language — map it to the closest level), run:
+The user may change one or both settings. Map natural language to the closest option:
+- "deep" / "thorough" / "more analysis" → `--analysis-depth deep`
+- "standard" / "fast" / "less tokens" → `--analysis-depth standard`
+- "quiet" / "don't nudge" → `--nudge-level quiet`
+- "eager" / "proactive" → `--nudge-level eager`
+
+Build a single command with the applicable flags:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/write-settings.py" --nudge-level <level>
+python3 "<FORGE_ROOT>/scripts/write-settings.py" --nudge-level <level> --analysis-depth <depth>
 ```
 
-Where `<level>` is `quiet`, `balanced`, or `eager`.
+Only include flags for settings the user wants to change. At least one is required.
 
-Confirm the change with a one-line summary of what the new level means.
+Confirm the change with a one-line summary of what each new setting means.
 
-If the user's preference doesn't map cleanly to a level, explain the closest match and ask which they'd prefer.
+If the user's preference doesn't map cleanly, explain the closest match and ask which they'd prefer.

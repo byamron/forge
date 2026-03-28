@@ -319,6 +319,38 @@ Key changes:
 
 ---
 
+## 2026-03-27: Marketplace distribution setup
+
+**Decision:** Added infrastructure for distributing Forge via the Claude Code private plugin marketplace: a `.claude-plugin/marketplace.json` manifest at the repo root, a `scripts/sync-version.py` build tool to keep the manifest version in sync with `forge/.claude-plugin/plugin.json`, a `.githooks/pre-commit` hook to automate the sync, and a `/forge:version` skill for users to verify their installed build.
+
+**Why:** Users need a way to install Forge without cloning the repo and pointing `--plugin-dir` at it. The marketplace is Claude Code's native distribution mechanism. The version sync tooling prevents the manifest and plugin from drifting apart — the pre-commit hook reads staged content from the git index (not the working tree) to ensure committed files are always consistent.
+
+**Key design choices:**
+- `sync-version.py` and the pre-commit hook live at the repo root (`scripts/`, `.githooks/`), not under `forge/`. They are developer build tooling, not part of the plugin runtime. The plugin remains self-contained under `forge/`.
+- `plugin.json` is the single source of truth for the version number. The marketplace manifest is a downstream consumer.
+- The `/forge:version` skill reads `installed_plugins.json` from `~/.claude/plugins/` to report the installed build, including git SHA and freshness.
+
+---
+
+## 2026-03-27: Deep analysis mode — background LLM pass + dead code cleanup
+
+**Decision:** Added `analysis_depth` setting (standard/deep) and `/forge --deep`/`--quick` flags. Deep mode runs scripts synchronously (instant with cache), shows the health table immediately, then spawns the session-analyzer agent in the background for contextual pattern detection. All proposals are presented together when the agent completes. Standard mode is unchanged from the previous synchronous flow.
+
+Also deleted the `artifact-generator` agent (never invoked — the `/forge` skill generates artifacts inline) and rewrote the `session-analyzer` agent from its old Phase B confirmation role to deep analysis.
+
+**Why:** The 2026-03-27 LLM gap analysis showed scripts and LLM find complementary patterns. Scripts handle scale (50+ sessions, <2s, zero tokens). LLM finds contextual signals (position-aware patterns, implicit preferences, approval gates) on a sample of conversation pairs. The background UX means users don't wait — they see the health table immediately and can continue working while the LLM runs.
+
+**Default is standard** (zero token cost) to avoid surprise billing. Users opt in via `/forge:settings` or per-invocation with `--deep`. The proactive/hook path always uses scripts only regardless of setting.
+
+**Security note:** Step 1b spawns the `session-analyzer` agent directly (subagent_type: `session-analyzer`), not a `general-purpose` agent with inlined instructions. This ensures the agent's `disallowedTools: [Write, Edit, Bash]` constraint from `session-analyzer.md` frontmatter is enforced, per `.claude/rules/security.md`.
+
+**Alternatives considered:**
+- Always running deep on explicit `/forge` invocation — rejected because some users on API billing want to control token spend per invocation.
+- Running deep analysis at SessionEnd — rejected because sessions may be tearing down (especially in Conductor worktrees), and silent background token spend is surprising.
+- Two-wave proposal presentation (show script proposals immediately, then deep proposals when ready) — rejected because it creates context-switching during review and risks the user approving something that overlaps with a deep proposal not yet shown.
+
+---
+
 ## 2026-03-28: Enterprise hardening — security, tests, and Python 3.8 compat
 
 **Decision:** Comprehensive audit and hardening pass to make Forge production-ready for enterprise customers. Three phases:
