@@ -384,3 +384,21 @@ Also deleted the `artifact-generator` agent (never invoked — the `/forge` skil
 - Structured logging framework — rejected; plain stderr is sufficient at this scale.
 - Shared utility module for `_sanitize_text` / `_removesuffix` — rejected; scripts are intentionally standalone, duplicating a 4-line helper is pragmatic.
 - CI/CD setup — deferred; the test suite is the prerequisite. CI is a separate effort.
+
+---
+
+## 2026-03-28: Defense-in-depth scope isolation rules
+
+**Decision:** Added explicit scope isolation rules at every layer of the plugin: security policy (`.claude/rules/security.md`), plugin manifest (`plugin.json`), session-analyzer agent, and the `/forge` skill. Each layer independently enforces that Forge only reads data from the current project during normal analysis.
+
+**Why:** The existing "Analysis scope is per-project" constraint in CLAUDE.md was a single high-level statement. LLM agents follow instructions more reliably when the same constraint is reinforced at the point of action — the security rule for policy enforcement, the agent frontmatter for subagent isolation, and the skill body for the entry-point. A single missed instruction shouldn't create cross-project data leakage.
+
+**What was added:**
+- **Security rule — Read boundary:** Defines exactly what Forge can read during normal analysis (current project dir, its `.claude/` config, matched `~/.claude/projects/` dirs). Carves out `~/.claude/forge/analyzer-stats.json` as the only cross-project file. Requires disclosure when users explicitly request cross-project access.
+- **Plugin manifest:** Explicit `skills`, `agents`, `hooks` path declarations for discoverability.
+- **Session-analyzer agent:** New safety constraint: only reason about data provided in input, never proactively access other project dirs.
+- **Forge skill:** Scope constraint paragraph near the top of instructions, repeating the isolation rule at the user-facing entry point.
+
+**Alternatives considered:**
+- Adding the constraint only to security.md — rejected because agents and skills have their own instruction context and may not load rules files. Each layer should be self-contained.
+- Adding runtime enforcement (path checks in Python scripts) — the scripts already scope via `--project-root` and git remote matching. The new rules are LLM-instruction-level defense, complementing the existing code-level scoping.
