@@ -6,6 +6,7 @@ description: >
   applying suggestions. Use when you want to optimize your Claude Code
   infrastructure, check your setup health, or review pending suggestions.
   Works immediately on first run with no session history needed.
+  Supports --deep for LLM-enhanced analysis and --quick for script-only mode.
 context:
   - references/artifact-templates.md
   - references/anthropic-best-practices.md
@@ -13,26 +14,61 @@ context:
 
 You are running Forge, the Claude Code infrastructure optimizer. Follow these steps in order.
 
-## Step 1: Get proposals
+## Step 0: Determine analysis mode
 
-Run a single command that resolves the plugin, runs any stale analysis, and returns ready-to-present proposals:
+Check the user's invocation text for flags:
+- `/forge --deep` → use **deep** mode (one-time override)
+- `/forge --quick` → use **standard** mode (one-time override)
+- `/forge` (no flags) → read from settings (next step)
+
+If no flag was provided, resolve the plugin root and read the default:
 
 ```bash
-FORGE_ROOT="${CLAUDE_PLUGIN_ROOT}"; if [ -z "$FORGE_ROOT" ]; then FORGE_ROOT=$(python3 -c "import json,pathlib; data=json.loads(pathlib.Path.home().joinpath('.claude/plugins/installed_plugins.json').read_text()); print(next((v[0]['installPath'] for k,v in data.get('plugins',{}).items() if k.startswith('forge@')), ''))" 2>/dev/null); fi; if [ -z "$FORGE_ROOT" ]; then echo 'ERROR: Could not locate Forge plugin'; exit 1; fi; echo "FORGE_ROOT=$FORGE_ROOT"; python3 "$FORGE_ROOT/scripts/cache-manager.py" --proposals --plugin-root "$FORGE_ROOT"
+FORGE_ROOT="${CLAUDE_PLUGIN_ROOT}"; if [ -z "$FORGE_ROOT" ]; then FORGE_ROOT=$(python3 -c "import json,pathlib; data=json.loads(pathlib.Path.home().joinpath('.claude/plugins/installed_plugins.json').read_text()); print(next((v[0]['installPath'] for k,v in data.get('plugins',{}).items() if k.startswith('forge@')), ''))" 2>/dev/null); fi; if [ -z "$FORGE_ROOT" ]; then echo 'ERROR: Could not locate Forge plugin'; exit 1; fi; echo "FORGE_ROOT=$FORGE_ROOT"; python3 "$FORGE_ROOT/scripts/read-settings.py"
 ```
 
-If the output starts with `ERROR`, tell the user the Forge plugin scripts could not be located and stop.
+Check the `analysis_depth` field in the JSON output. Default is `"standard"`.
 
-**Save the `FORGE_ROOT=...` path from the first line of output** — you will need it in Steps 3 and 4 for reading reference files and running the finalize script.
+**Save the `FORGE_ROOT=...` path** — you will need it throughout.
 
-The rest of the output is a JSON object with:
-- `proposals`: Array of proposals, each with `id`, `type`, `impact`, `description`, `evidence_summary`, `suggested_content`, `suggested_path`, `status`
+If FORGE_ROOT could not be resolved, tell the user the Forge plugin scripts could not be located and stop.
+
+## Step 1: Get proposals
+
+Run the analysis pipeline (uses cache, typically instant):
+
+```bash
+python3 "<FORGE_ROOT>/scripts/cache-manager.py" --proposals --plugin-root "<FORGE_ROOT>"
+```
+
+Replace `<FORGE_ROOT>` with the actual path from Step 0.
+
+The output is a JSON object with:
+- `proposals`: Array of proposals from script analysis
 - `context_health`: Summary of context budget and artifact counts
 - `stats`: How many sessions were analyzed, candidates found, etc.
+- `conversation_pairs_sample`: Recent conversation pairs (used by deep mode)
+
+## Step 1b: Start deep analysis (deep mode only)
+
+**Skip this step if the analysis mode is standard.**
+
+If deep mode is active, spawn the `session-analyzer` agent in the background to find contextual patterns:
+
+1. Prepare the agent's input by combining:
+   - The `proposals` array from Step 1 (so the agent knows what scripts already found)
+   - The `context_health` from Step 1
+   - The `conversation_pairs_sample` from Step 1
+
+2. Use the Agent tool with `run_in_background: true` to spawn the `session-analyzer` agent (subagent_type: `session-analyzer`). In the prompt, include:
+   - The combined input data above
+   - Ask it to return a JSON array of additional proposals
+
+3. Continue to Step 2 immediately — do not wait for the agent.
 
 ## Step 2: Present results
 
-### Context health
+### Context health (show immediately)
 
 Using the `context_health` from Step 1, show a brief health table:
 
@@ -48,9 +84,23 @@ Using the `context_health` from Step 1, show a brief health table:
 
 Use ⚠ for any metric with gaps or issues. If `context_health.over_budget` is true, mark CLAUDE.md with ⚠.
 
-### Proposals
+### Deep mode: wait for background analysis
 
-If there are no proposals, tell the user their setup looks good. Stop.
+If deep mode is active and the background agent has not yet returned:
+
+Show this message:
+
+> Deep analysis running in the background — keep working, I'll surface results when ready.
+> Prefer instant results? Run `/forge:settings` to switch to standard mode.
+
+Wait for the background agent to complete. When it returns, merge its proposals with the script proposals from Step 1:
+- Deep proposals have `"source": "deep_analysis"` — append them after script proposals
+- If a deep proposal describes the same pattern as a script proposal (same `id` or clearly overlapping evidence), keep the script proposal and enrich its `evidence_summary` with the deep insight instead of showing a duplicate
+- Sort the merged list by impact (high first)
+
+### Present proposals
+
+If there are no proposals (from scripts, or from scripts + deep analysis combined), tell the user their setup looks good. Stop.
 
 **Do not mention filtering, noise removal, or data from other projects.** Only present proposals that are relevant to this project. If the analysis data contains irrelevant entries, silently skip them.
 
@@ -105,7 +155,7 @@ mkdir -p .claude/rules .claude/skills/<name1> .claude/skills/<name2> ...
 
 ### 3c. Generate and write artifacts
 
-Generate the artifact content yourself following the templates from the reference files. Do **not** spawn the artifact-generator agent. Write each artifact:
+Generate the artifact content yourself following the templates from the reference files. Write each artifact:
 - **CLAUDE.md entries**: Append to `CLAUDE.md` (create if needed). Warn if over 200 lines after.
 - **Rules**: Write to `.claude/rules/<name>.md`
 - **Hooks**: Read existing `.claude/settings.json`, merge the new hook into the appropriate event array. Preserve all existing hooks — never overwrite.
@@ -127,7 +177,7 @@ python3 "<FORGE_ROOT>/scripts/finalize-proposals.py" --project-root "$(pwd)" <<'
 FORGE_EOF
 ```
 
-Replace `<FORGE_ROOT>` with the actual path from Step 1.
+Replace `<FORGE_ROOT>` with the actual path from Step 0.
 
 Where `<JSON>` is a JSON object with:
 - `outcomes`: Array of `{"id": "<proposal-id>", "status": "applied|dismissed|pending", "type": "<proposal-type>"}` for every proposal

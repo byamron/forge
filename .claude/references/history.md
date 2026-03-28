@@ -316,3 +316,22 @@ Key changes:
 4. **Generated ESLint hook violated security rules.** `_generate_hook_content()` produced an ESLint command with `2>/dev/null || echo "..."`, violating the security rule against chained commands and redirects in hooks. Fixed by stripping to a clean single invocation.
 
 **Why:** Issues 1 and 3 are security fixes (shell injection, data isolation). Issue 2 is a correctness bug (users see outdated proposals). Issue 4 is a policy violation in generated artifacts.
+
+---
+
+## 2026-03-27: Deep analysis mode — background LLM pass + dead code cleanup
+
+**Decision:** Added `analysis_depth` setting (standard/deep) and `/forge --deep`/`--quick` flags. Deep mode runs scripts synchronously (instant with cache), shows the health table immediately, then spawns the session-analyzer agent in the background for contextual pattern detection. All proposals are presented together when the agent completes. Standard mode is unchanged from the previous synchronous flow.
+
+Also deleted the `artifact-generator` agent (never invoked — the `/forge` skill generates artifacts inline) and rewrote the `session-analyzer` agent from its old Phase B confirmation role to deep analysis.
+
+**Why:** The 2026-03-27 LLM gap analysis showed scripts and LLM find complementary patterns. Scripts handle scale (50+ sessions, <2s, zero tokens). LLM finds contextual signals (position-aware patterns, implicit preferences, approval gates) on a sample of conversation pairs. The background UX means users don't wait — they see the health table immediately and can continue working while the LLM runs.
+
+**Default is standard** (zero token cost) to avoid surprise billing. Users opt in via `/forge:settings` or per-invocation with `--deep`. The proactive/hook path always uses scripts only regardless of setting.
+
+**Security note:** Step 1b spawns the `session-analyzer` agent directly (subagent_type: `session-analyzer`), not a `general-purpose` agent with inlined instructions. This ensures the agent's `disallowedTools: [Write, Edit, Bash]` constraint from `session-analyzer.md` frontmatter is enforced, per `.claude/rules/security.md`.
+
+**Alternatives considered:**
+- Always running deep on explicit `/forge` invocation — rejected because some users on API billing want to control token spend per invocation.
+- Running deep analysis at SessionEnd — rejected because sessions may be tearing down (especially in Conductor worktrees), and silent background token spend is surprising.
+- Two-wave proposal presentation (show script proposals immediately, then deep proposals when ready) — rejected because it creates context-switching during review and risks the user approving something that overlaps with a deep proposal not yet shown.

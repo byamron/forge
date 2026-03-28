@@ -6,6 +6,7 @@ Creates the file and directory if they don't exist.
 
 Usage:
     python3 write-settings.py --nudge-level <quiet|balanced|eager>
+    python3 write-settings.py --analysis-depth <standard|deep>
 """
 
 import argparse
@@ -14,11 +15,17 @@ import sys
 from pathlib import Path
 
 VALID_LEVELS = ("quiet", "balanced", "eager")
+VALID_DEPTHS = ("standard", "deep")
 
 LEVEL_DESCRIPTIONS = {
     "quiet": "No automatic nudges. Forge only runs when you invoke /forge.",
     "balanced": "Nudge on session start after 5+ new unanalyzed sessions.",
     "eager": "Nudge on session start after 2+ new unanalyzed sessions.",
+}
+
+DEPTH_DESCRIPTIONS = {
+    "standard": "Script-only analysis. Fast, zero token cost.",
+    "deep": "Scripts + background LLM pass. Finds contextual patterns scripts can't detect.",
 }
 
 
@@ -38,9 +45,14 @@ def main():
         choices=VALID_LEVELS,
         help="Set the nudge frequency level.",
     )
+    parser.add_argument(
+        "--analysis-depth",
+        choices=VALID_DEPTHS,
+        help="Set the analysis depth (standard or deep).",
+    )
     args = parser.parse_args()
 
-    if not args.nudge_level:
+    if not args.nudge_level and not args.analysis_depth:
         print("No changes specified.", file=sys.stderr)
         sys.exit(1)
 
@@ -57,7 +69,10 @@ def main():
             pass
 
     # Apply changes
-    settings["nudge_level"] = args.nudge_level
+    if args.nudge_level:
+        settings["nudge_level"] = args.nudge_level
+    if args.analysis_depth:
+        settings["analysis_depth"] = args.analysis_depth
 
     # Write atomically
     settings_path.parent.mkdir(parents=True, exist_ok=True)
@@ -67,11 +82,13 @@ def main():
         f.write("\n")
     Path(tmp).replace(settings_path)
 
-    output = {
-        "nudge_level": args.nudge_level,
-        "description": LEVEL_DESCRIPTIONS[args.nudge_level],
-        "settings_path": str(settings_path),
-    }
+    output = {"settings_path": str(settings_path)}
+    if args.nudge_level:
+        output["nudge_level"] = args.nudge_level
+        output["nudge_level_description"] = LEVEL_DESCRIPTIONS[args.nudge_level]
+    if args.analysis_depth:
+        output["analysis_depth"] = args.analysis_depth
+        output["analysis_depth_description"] = DEPTH_DESCRIPTIONS[args.analysis_depth]
     json.dump(output, sys.stdout, indent=2)
     sys.stdout.write("\n")
 
