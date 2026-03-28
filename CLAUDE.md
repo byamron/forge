@@ -6,17 +6,13 @@ Forge is a Claude Code plugin that analyzes sessions, configuration, and auto-me
 
 The plugin lives in `forge/` and is tested with `claude --plugin-dir ./forge`. After changes to skills, agents, or hooks, run `/reload-plugins` to pick up updates.
 
-## Spec and Roadmap
-
-The product spec is at `.context/attachments/forge-spec.md`. The implementation roadmap is at `.context/attachments/forge-roadmap.md`. Read these before making architectural decisions or adding new features.
-
 ## Architecture
 
 - **Skills** (`forge/skills/*/SKILL.md`): User-facing commands — `/forge` (unified analysis + review), `/forge:settings` (nudge frequency config), `/forge:version` (installed version and freshness check)
-- **Agents** (`forge/agents/*.md`): Subagents — `session-analyzer` (LLM analysis pass, replaces Phase B confirmation), `artifact-generator` (creates artifacts)
+- **Agents** (`forge/agents/*.md`): Subagents — `session-analyzer` (LLM analysis pass for deep mode)
 - **Scripts** (`forge/scripts/*.py`): Zero-token Phase A analysis — `analyze-config.py`, `analyze-transcripts.py`, `analyze-memory.py`
 - **Hooks** (`forge/hooks/hooks.json`): SessionEnd hook for session tracking
-- **References** (`forge/references/*.md`): Templates and best practices used by the artifact-generator
+- **References** (`forge/references/*.md`): Templates and best practices used during artifact generation
 
 ## Key Constraints
 

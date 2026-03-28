@@ -22,7 +22,7 @@ Store the result — use it in place of `${CLAUDE_PLUGIN_ROOT}` for all script c
 Run:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read-settings.py"
+python3 "<FORGE_ROOT>/scripts/read-settings.py"
 ```
 
 This outputs the current settings as JSON, including the active nudge level, analysis depth, and what they mean.
@@ -65,7 +65,7 @@ The user may change one or both settings. Map natural language to the closest op
 Build a single command with the applicable flags:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/write-settings.py" --nudge-level <level> --analysis-depth <depth>
+python3 "<FORGE_ROOT>/scripts/write-settings.py" --nudge-level <level> --analysis-depth <depth>
 ```
 
 Only include flags for settings the user wants to change. At least one is required.
