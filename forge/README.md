@@ -6,11 +6,20 @@ Infrastructure architect for Claude Code. Analyzes your sessions, configuration,
 
 - `/forge` — Analyze your setup and apply improvements. Use `--deep` for LLM-enhanced pattern detection, `--quick` for script-only mode.
 - `/forge:settings` — Configure nudge frequency and analysis depth (standard/deep).
+- `/forge:version` — Check installed version and verify the build is current.
 
 ## Installation
 
+**Via marketplace (recommended):** In Claude Code, run `/plugins`, add `https://github.com/byamron/forge.git` as a marketplace, then install Forge.
+
+**Local development:**
 ```bash
 claude --plugin-dir ./forge
+```
+
+After cloning, enable the version-sync pre-commit hook:
+```bash
+git config core.hooksPath .githooks
 ```
 
 ## Requirements
