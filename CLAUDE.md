@@ -33,7 +33,13 @@ The plugin lives in `forge/` and is tested with `claude --plugin-dir ./forge`. A
 
 ## Testing
 
-Test the plugin by running `claude --plugin-dir ./forge` against real projects. Use `claude --debug` for plugin loading and hook execution logs. There is no automated test suite yet.
+Test the plugin by running `claude --plugin-dir ./forge` against real projects. Use `claude --debug` for plugin loading and hook execution logs.
+
+Automated tests live in `tests/` and run with `pytest`. They cover security invariants, the transcript analyzer, cache manager, and proposal builder. Run with `python3 -m pytest tests/ -v`. Pytest is a dev-only dependency — runtime scripts use only the standard library.
+
+## License
+
+Proprietary. No license file — all rights reserved by default. The `plugin.json` `license` field is omitted intentionally.
 
 ## History
 

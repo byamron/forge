@@ -21,10 +21,11 @@ All file writes are restricted to `.claude/` (project-level config) and `CLAUDE.
 
 ## Data handling
 
-- Git remote URLs are stripped of embedded credentials before storage.
-- User message text is truncated (500 chars in analysis, 300 in proposals) to limit exposure.
+- Git remote URLs are stripped of embedded credentials before storage. On parse failure, URLs are replaced with `<redacted-url>` — never returned as-is.
+- User message text is sanitized (control characters stripped) and truncated (500 chars in analysis, 300 in proposals) to limit exposure.
 - Forge never reads or stores API keys, tokens, `.env` files, or credentials.
 - All analysis is scoped to the current project. Forge never reads transcripts from unrelated projects.
+- Decoded project directory paths are resolved (`Path.resolve()`) to prevent symlink-based traversal.
 
 ## Destructive operations
 

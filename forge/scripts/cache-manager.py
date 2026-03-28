@@ -256,6 +256,7 @@ def write_cache(root: Path, script_key: str, fingerprint: str,
         dir=str(cdir), suffix=".tmp", prefix=f"{script_key}."
     )
     try:
+        os.fchmod(fd, 0o644)
         with os.fdopen(fd, "w") as f:
             json.dump(data, f, indent=2)
             f.write("\n")
@@ -336,6 +337,10 @@ def update_cache(root: Path, plugin_root: Optional[str] = None) -> Dict[str, str
                 continue
 
             script_result = json.loads(proc.stdout)
+            # Validate shape: all analysis scripts output JSON objects
+            if not isinstance(script_result, dict):
+                statuses[key] = "error:invalid_shape"
+                continue
             write_cache(root, key, current_fp, script_result)
             statuses[key] = "updated"
 
@@ -475,6 +480,10 @@ def main():
     args = parser.parse_args()
 
     root = find_project_root(args.project_root)
+
+    if not root.is_dir():
+        print(f"Error: project root does not exist: {root}", file=sys.stderr)
+        sys.exit(1)
 
     # Resolve plugin root from env if not provided
     plugin_root = args.plugin_root or os.environ.get("CLAUDE_PLUGIN_ROOT")

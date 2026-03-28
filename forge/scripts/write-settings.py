@@ -11,6 +11,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -80,6 +81,7 @@ def main():
     with open(tmp, "w") as f:
         json.dump(settings, f, indent=2)
         f.write("\n")
+    os.chmod(tmp, 0o644)
     Path(tmp).replace(settings_path)
 
     output = {"settings_path": str(settings_path)}

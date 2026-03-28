@@ -25,6 +25,7 @@ Input format:
 
 import datetime
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
@@ -57,6 +58,7 @@ def _write_json_atomic(path: Path, data: Any) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
         f.write("\n")
+    os.chmod(tmp, 0o644)
     Path(tmp).replace(path)
 
 
@@ -161,6 +163,10 @@ def main() -> None:
     args = parser.parse_args()
 
     project_root = Path(args.project_root).resolve()
+
+    if not project_root.is_dir():
+        print(f"Error: project root does not exist: {project_root}", file=sys.stderr)
+        sys.exit(1)
 
     # Read input from stdin
     try:

@@ -17,6 +17,16 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _sanitize_text(text: str, max_len: int = 0) -> str:
+    """Remove control characters and optionally truncate."""
+    cleaned = _CONTROL_CHAR_RE.sub("", text)
+    if max_len > 0:
+        cleaned = cleaned[:max_len]
+    return cleaned
+
 
 # ---------------------------------------------------------------------------
 # Classification patterns
@@ -308,6 +318,10 @@ def main():
         else Path.cwd().resolve()
     )
 
+    if not root.is_dir():
+        print(f"Error: project root does not exist: {root}", file=sys.stderr)
+        sys.exit(1)
+
     output = {
         "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
         "auto_memory": {
@@ -366,7 +380,7 @@ def main():
 
                 output["auto_memory"]["promotable_notes"].append({
                     "source": str(mem_file),
-                    "content": entry[:300],  # truncate long entries
+                    "content": _sanitize_text(entry, 300),  # truncate long entries
                     "classification": classification,
                     "suggestion": suggestion,
                     "suggested_artifact": artifact,
@@ -394,7 +408,7 @@ def main():
             # Check if domain-specific
             if is_domain_specific(entry):
                 output["claude_local_md"]["domain_specific_entries"].append({
-                    "content": entry[:300],
+                    "content": _sanitize_text(entry, 300),
                     "suggestion": (
                         "This entry mentions specific file types or frameworks. "
                         "Consider moving to a scoped rule in .claude/rules/ with "
@@ -405,7 +419,7 @@ def main():
             # Check if redundant with CLAUDE.md
             if check_redundancy(entry, root):
                 output["claude_local_md"]["redundant_entries"].append({
-                    "content": entry[:300],
+                    "content": _sanitize_text(entry, 300),
                     "suggestion": (
                         "This entry appears to duplicate content already in CLAUDE.md. "
                         "Consider removing it from CLAUDE.local.md."

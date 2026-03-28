@@ -4,22 +4,29 @@
     "name": "byamron"
   },
   "metadata": {
-    "description": "Infrastructure architect for Claude Code — analyzes sessions and generates optimized rules, skills, hooks, and agents.",
-    "version": "0.1.0"
+    "description": "Infrastructure architect for Claude Code \u2014 analyzes sessions and generates optimized rules, skills, hooks, and agents.",
+    "version": "0.2.0"
   },
   "plugins": [
     {
       "name": "forge",
       "source": "./forge",
-      "description": "Infrastructure architect for Claude Code. Analyzes your sessions, configuration, and auto-memory to generate optimized rules, skills, hooks, agents, and reference docs — and manages your context architecture over time.",
-      "version": "0.1.0",
+      "description": "Infrastructure architect for Claude Code. Analyzes your sessions, configuration, and auto-memory to generate optimized rules, skills, hooks, agents, and reference docs \u2014 and manages your context architecture over time.",
+      "version": "0.2.0",
       "author": {
         "name": "byamron"
       },
       "homepage": "https://github.com/byamron/forge",
       "repository": "https://github.com/byamron/forge",
       "category": "development",
-      "keywords": ["infrastructure", "automation", "rules", "skills", "hooks", "agents"]
+      "keywords": [
+        "infrastructure",
+        "automation",
+        "rules",
+        "skills",
+        "hooks",
+        "agents"
+      ]
     }
   ]
 }

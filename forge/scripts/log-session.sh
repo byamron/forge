@@ -14,14 +14,17 @@ SESSION_ID=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin)
 
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# Find project root — walk up from cwd looking for .git or .claude
-PROJECT_ROOT="$(pwd)"
-while [ "$PROJECT_ROOT" != "/" ]; do
-  if [ -d "$PROJECT_ROOT/.git" ] || [ -d "$PROJECT_ROOT/.claude" ]; then
-    break
-  fi
-  PROJECT_ROOT="$(dirname "$PROJECT_ROOT")"
-done
+# Find project root — prefer git's answer, fall back to walking up
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+if [ -z "$PROJECT_ROOT" ]; then
+    PROJECT_ROOT="$(pwd)"
+    while [ "$PROJECT_ROOT" != "/" ]; do
+      if [ -d "$PROJECT_ROOT/.git" ] || [ -d "$PROJECT_ROOT/.claude" ]; then
+        break
+      fi
+      PROJECT_ROOT="$(dirname "$PROJECT_ROOT")"
+    done
+fi
 
 # Create forge directory if needed
 mkdir -p "$PROJECT_ROOT/.claude/forge"
@@ -63,7 +66,7 @@ try:
     else:
         remote = raw_remote
 except Exception:
-    remote = raw_remote
+    remote = '<redacted-url>'
 
 # Load existing index
 index = {}

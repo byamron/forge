@@ -38,6 +38,32 @@ from typing import Dict, List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
+# Python 3.8 compatibility
+# ---------------------------------------------------------------------------
+
+def _removesuffix(s: str, suffix: str) -> str:
+    """str.removesuffix() backport for Python 3.8."""
+    if suffix and s.endswith(suffix):
+        return s[: -len(suffix)]
+    return s
+
+
+# ---------------------------------------------------------------------------
+# Text sanitization
+# ---------------------------------------------------------------------------
+
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _sanitize_text(text: str, max_len: int = 0) -> str:
+    """Remove control characters and optionally truncate."""
+    cleaned = _CONTROL_CHAR_RE.sub("", text)
+    if max_len > 0:
+        cleaned = cleaned[:max_len]
+    return cleaned
+
+
+# ---------------------------------------------------------------------------
 # NLP utilities — tokenization, stopwords, TF-IDF scoring
 # ---------------------------------------------------------------------------
 
@@ -278,6 +304,7 @@ def _decode_project_dir(encoded: str) -> str:
 
     Walks segments left-to-right, greedily joining with - when the joined
     path exists on disk. Falls back to treating each - as a / separator.
+    Returns resolved absolute path, or empty string on any safety violation.
     """
     parts = encoded.lstrip("-").split("-")
     # Reject if any segment is a literal ".." path traversal component
@@ -296,7 +323,12 @@ def _decode_project_dir(encoded: str) -> str:
                 best_j = j
         result.append(best_segment)
         i = best_j + 1
-    return str(Path(*result))
+    # Resolve symlinks and normalize to prevent traversal via symlinks
+    decoded = str(Path(*result).resolve())
+    # Final safety check: reject if ".." survived resolution
+    if ".." in decoded.split("/"):
+        return ""
+    return decoded
 
 
 def _strip_url_credentials(url: str) -> str:
@@ -310,9 +342,11 @@ def _strip_url_credentials(url: str) -> str:
             if parsed.port:
                 netloc += ":" + str(parsed.port)
             return urlunparse(parsed._replace(netloc=netloc))
+        return url
     except Exception:
-        pass
-    return url
+        # Fail safe: never return the original URL if parsing failed —
+        # it may contain embedded credentials
+        return "<redacted-url>"
 
 
 def _get_git_remote(path: str) -> Optional[str]:
@@ -330,7 +364,8 @@ def _get_git_remote(path: str) -> Optional[str]:
         if result.returncode == 0 and url:
             return _strip_url_credentials(url)
         return None
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"Warning: git remote check failed for {path}: {e}", file=sys.stderr)
         return None
 
 
@@ -364,8 +399,8 @@ def _load_repo_index() -> Dict[str, List[str]]:
             return {
                 k: v for k, v in data.items() if isinstance(v, list)
             }
-    except (json.JSONDecodeError, OSError):
-        pass
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"Warning: failed to load repo index: {e}", file=sys.stderr)
     return {}
 
 
@@ -422,9 +457,9 @@ def find_all_project_session_dirs(project_root: Path) -> List[Path]:
     if current_remote:
         repo_index = _load_repo_index()
         # Normalize remote URL for comparison (strip trailing .git, lowercase)
-        norm_remote = current_remote.rstrip("/").removesuffix(".git").lower()
+        norm_remote = _removesuffix(current_remote.rstrip("/"), ".git").lower()
         for indexed_remote, dir_names in repo_index.items():
-            norm_indexed = indexed_remote.rstrip("/").removesuffix(".git").lower()
+            norm_indexed = _removesuffix(indexed_remote.rstrip("/"), ".git").lower()
             if norm_indexed == norm_remote:
                 for name in dir_names:
                     d = claude_projects / name
@@ -449,13 +484,15 @@ def find_all_project_session_dirs(project_root: Path) -> List[Path]:
         workspace_prefixes = set()
         for m in worktree_matches:
             decoded = _decode_project_dir(m)
+            if not decoded:
+                continue
             parent = Path(decoded).parent
             if parent.is_dir():
                 parent_encoded = _encode_path_as_project_dir(str(parent))
                 workspace_prefixes.add(parent_encoded)
 
         if workspace_prefixes and current_remote:
-            norm_remote = current_remote.rstrip("/").removesuffix(".git").lower()
+            norm_remote = _removesuffix(current_remote.rstrip("/"), ".git").lower()
             for d in claude_projects.iterdir():
                 if not d.is_dir() or d.name in matched_dirs:
                     continue
@@ -466,10 +503,10 @@ def find_all_project_session_dirs(project_root: Path) -> List[Path]:
                         # workspace directory would leak in.
                         verified = False
                         decoded_path = _decode_project_dir(d.name)
-                        if Path(decoded_path).is_dir():
+                        if decoded_path and Path(decoded_path).is_dir():
                             remote = _get_git_remote(decoded_path)
                             if remote:
-                                norm = remote.rstrip("/").removesuffix(".git").lower()
+                                norm = _removesuffix(remote.rstrip("/"), ".git").lower()
                                 if norm == norm_remote:
                                     verified = True
                         if verified:
@@ -481,15 +518,15 @@ def find_all_project_session_dirs(project_root: Path) -> List[Path]:
     # strategies 1-4 found fewer than 2 matches (meaning we likely missed
     # worktrees that aren't in a shared workspace directory).
     if current_remote and len(matched_dirs) < 2:
-        norm_remote = current_remote.rstrip("/").removesuffix(".git").lower()
+        norm_remote = _removesuffix(current_remote.rstrip("/"), ".git").lower()
         for d in claude_projects.iterdir():
             if not d.is_dir() or d.name in matched_dirs:
                 continue
             decoded_path = _decode_project_dir(d.name)
-            if Path(decoded_path).is_dir():
+            if decoded_path and Path(decoded_path).is_dir():
                 remote = _get_git_remote(decoded_path)
                 if remote:
-                    norm = remote.rstrip("/").removesuffix(".git").lower()
+                    norm = _removesuffix(remote.rstrip("/"), ".git").lower()
                     if norm == norm_remote:
                         matched_dirs.add(d.name)
 
@@ -593,8 +630,8 @@ def parse_transcript(filepath: Path) -> list:
                     "timestamp": timestamp,
                     "raw_type": msg_type,
                 })
-    except (OSError, UnicodeDecodeError):
-        pass
+    except (OSError, UnicodeDecodeError) as e:
+        print(f"Warning: failed to parse {filepath}: {e}", file=sys.stderr)
 
     return messages
 
@@ -661,7 +698,7 @@ def build_conversation_pairs(sessions: dict) -> List[dict]:
                     "session_id": session_id,
                     "timestamp": msg["timestamp"],
                     "turn_index": turn_index,
-                    "user_text": msg["text"][:500],
+                    "user_text": _sanitize_text(msg["text"], 500),
                     "user_tokens": tokenize(msg["text"]),
                     "classification": classification,
                     "correction_strength": strength,
@@ -733,12 +770,15 @@ def _intra_session_weight(count: int) -> float:
     Repeated corrections in one session are a strong signal — Claude keeps
     making the same mistake and the user keeps correcting it.
 
-    1st: 1.0, 2nd: 1.5, 3rd: 2.0, 4th+: 2.5 each
+    1st: 1.0, 2nd: 1.5, 3rd: 2.0, 4th+: 2.5 each (capped at 100)
     """
     if count <= 0:
         return 0.0
-    weights = [1.0, 1.5, 2.0] + [2.5] * max(0, count - 3)
-    return sum(weights[:count])
+    count = min(count, 100)  # cap to prevent unbounded allocation
+    base_weights = [1.0, 1.5, 2.0]
+    if count <= 3:
+        return sum(base_weights[:count])
+    return sum(base_weights) + 2.5 * (count - 3)
 
 
 def _recency_weight(timestamp: str) -> float:
@@ -932,7 +972,7 @@ def find_corrections(sessions: dict, stats: dict) -> list:
                 {
                     "session": p["session_id"],
                     "timestamp": p["timestamp"],
-                    "user_message": p["user_text"][:300],
+                    "user_message": _sanitize_text(p["user_text"], 300),
                     "preceding_action": {
                         "tools": p["assistant_tools"],
                         "files": p["assistant_files"],
@@ -986,7 +1026,7 @@ def find_post_actions(sessions: dict) -> list:
                             entry["evidence"].append({
                                 "session": session_id,
                                 "timestamp": msg["timestamp"],
-                                "user_message": text[:200],
+                                "user_message": _sanitize_text(text, 200),
                                 "after_tool": prev_tool,
                             })
                         break
@@ -1025,7 +1065,7 @@ def find_repeated_prompts(sessions: dict) -> list:
     for session_id, messages in sessions.items():
         for msg in messages:
             if msg["role"] == "user" and msg["text"].strip():
-                text = msg["text"][:300]
+                text = _sanitize_text(msg["text"], 300)
                 tokens = tokenize(text)
                 openers.append((session_id, text, set(tokens)))
                 break
@@ -1153,6 +1193,10 @@ def main():
         if args.project_root
         else Path.cwd().resolve()
     )
+
+    if not root.is_dir():
+        print(f"Error: project root does not exist: {root}", file=sys.stderr)
+        sys.exit(1)
 
     # Load feedback stats for threshold adjustment
     stats = load_feedback_stats()
