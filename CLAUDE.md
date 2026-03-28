@@ -41,6 +41,16 @@ Automated tests live in `tests/` and run with `pytest`. They cover security inva
 
 Proprietary. No license file — all rights reserved by default. The `plugin.json` `license` field is omitted intentionally.
 
+## PR Readiness
+
+Before creating any PR, verify the following:
+
+- **Version bump.** If any file under `forge/` changed, bump the version in all three locations: `forge/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` `metadata.version`, and `.claude-plugin/marketplace.json` `plugins[0].version`.
+- **Tests pass.** Run `python3 -m pytest tests/ -v` and confirm all tests pass. Do not create a PR with failing tests.
+- **CLAUDE.md is current.** If the change adds, removes, or renames skills, agents, scripts, hooks, or references, update the Architecture section of this file to match.
+- **Rules are current.** If the change introduces a new convention or constraint (e.g., a new required manifest field, a new security boundary), add or update the relevant rule in `.claude/rules/`.
+- **History is updated.** If the change involves a significant design decision, architectural change, or non-obvious tradeoff, add an entry to `.claude/references/history.md`.
+
 ## History
 
 For the history of significant design and technical decisions, see `.claude/references/history.md`. **Proactively update this file** whenever you make a significant design decision, change an architectural approach, resolve a non-obvious tradeoff, or deviate from the spec. Each entry should capture what was decided, why, and what alternatives were considered.
