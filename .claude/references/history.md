@@ -316,3 +316,39 @@ Key changes:
 4. **Generated ESLint hook violated security rules.** `_generate_hook_content()` produced an ESLint command with `2>/dev/null || echo "..."`, violating the security rule against chained commands and redirects in hooks. Fixed by stripping to a clean single invocation.
 
 **Why:** Issues 1 and 3 are security fixes (shell injection, data isolation). Issue 2 is a correctness bug (users see outdated proposals). Issue 4 is a policy violation in generated artifacts.
+
+---
+
+## 2026-03-28: Enterprise hardening — security, tests, and Python 3.8 compat
+
+**Decision:** Comprehensive audit and hardening pass to make Forge production-ready for enterprise customers. Three phases:
+
+**Phase 1 — Critical fixes (7 items):**
+1. Replaced all 6 `str.removesuffix()` calls (Python 3.9+) with a `_removesuffix()` backport helper. This was a showstopper — the claimed Python 3.8 compatibility was broken.
+2. Credential stripping now returns `<redacted-url>` on exception instead of the original URL with embedded credentials. Fixed in both `analyze-transcripts.py` and `log-session.sh`.
+3. `_decode_project_dir()` now calls `Path.resolve()` on the final decoded path and guards empty-string returns at all 3 call sites. Prevents symlink-based path traversal.
+4. Added `_sanitize_text()` helper to strip control characters (`\x00-\x08`, `\x0b-\x0c`, `\x0e-\x1f`, `\x7f`) at all user text truncation points across 3 scripts. Prevents log injection and terminal escape attacks.
+5. Replaced `[2.5] * max(0, count - 3)` list allocation in `_intra_session_weight()` with pure arithmetic, capped at 100. Eliminates memory spike from adversarial session data.
+6. Cache manager now validates subprocess JSON output is a `dict` before caching. Prevents a script bug from silently corrupting downstream analysis.
+7. All silent exception handlers now log to stderr with the exception message. Critical for enterprise support diagnostics.
+
+**Phase 2 — Test infrastructure (68 tests):**
+- Created `tests/` with pytest configuration (`pyproject.toml`, `conftest.py` with shared fixtures).
+- `test_analyze_transcripts.py`: removesuffix compat, credential stripping (normal + malformed + fail-safe), path traversal rejection, text sanitization, weight bounds, JSONL parsing, response classification.
+- `test_build_proposals.py`: threshold filtering, dismissed exclusion, duplicate detection, impact scoring, similarity.
+- `test_cache_manager.py`: atomic writes, cache roundtrips, fingerprint determinism.
+- `test_security.py`: regression guards — grep for `shell=True` (assert zero), grep for raw `.removesuffix()` (assert zero), credential leak tests, no `eval()`/`exec()`, path traversal blocked.
+
+**Phase 3 — Enterprise polish (5 items):**
+1. Added `--project-root` existence validation in 4 scripts (analyze-config already had it).
+2. Explicit `0o644` file permissions on all atomic writes (prevents restrictive umask issues).
+3. `log-session.sh` now uses `git rev-parse --show-toplevel` first, falls back to directory walk. Fixes incorrect root detection in monorepos.
+4. License set to proprietary (no LICENSE file, `plugin.json` license field omitted). All rights reserved.
+5. Version bumped to 0.2.0.
+
+**Why:** The MVP was architecturally sound but had gaps that would be flagged in an enterprise security review. The `removesuffix` bug would crash on Python 3.8 (common in locked-down enterprise environments). Credential leakage on error paths is a hard fail for security teams. Zero tests means every change requires manual testing. These fixes address the highest-risk items without over-engineering.
+
+**Alternatives considered:**
+- Structured logging framework — rejected; plain stderr is sufficient at this scale.
+- Shared utility module for `_sanitize_text` / `_removesuffix` — rejected; scripts are intentionally standalone, duplicating a 4-line helper is pragmatic.
+- CI/CD setup — deferred; the test suite is the prerequisite. CI is a separate effort.

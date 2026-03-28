@@ -17,6 +17,7 @@ Usage:
 import argparse
 import datetime
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -106,6 +107,7 @@ def main():
     with open(tmp, "w") as f:
         json.dump(stats, f, indent=2)
         f.write("\n")
+    os.chmod(tmp, 0o644)
     Path(tmp).replace(stats_path)
 
     output = {
