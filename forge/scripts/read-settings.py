@@ -14,6 +14,7 @@ from pathlib import Path
 
 DEFAULTS = {
     "nudge_level": "balanced",
+    "analysis_depth": "standard",
 }
 
 LEVEL_DESCRIPTIONS = {
@@ -26,6 +27,11 @@ LEVEL_THRESHOLDS = {
     "quiet": None,
     "balanced": 5,
     "eager": 2,
+}
+
+DEPTH_DESCRIPTIONS = {
+    "standard": "Script-only analysis. Fast, zero token cost.",
+    "deep": "Scripts + background LLM pass. Finds contextual patterns scripts can't detect. Uses ~5K tokens.",
 }
 
 
@@ -63,6 +69,10 @@ def main():
     if level not in LEVEL_DESCRIPTIONS:
         level = "balanced"
 
+    depth = settings.get("analysis_depth", "standard")
+    if depth not in DEPTH_DESCRIPTIONS:
+        depth = "standard"
+
     output = {
         "nudge_level": level,
         "nudge_level_description": LEVEL_DESCRIPTIONS[level],
@@ -70,6 +80,12 @@ def main():
         "all_levels": {
             name: {"description": desc, "session_threshold": LEVEL_THRESHOLDS[name]}
             for name, desc in LEVEL_DESCRIPTIONS.items()
+        },
+        "analysis_depth": depth,
+        "analysis_depth_description": DEPTH_DESCRIPTIONS[depth],
+        "all_depths": {
+            name: {"description": desc}
+            for name, desc in DEPTH_DESCRIPTIONS.items()
         },
         "settings_path": str(root / ".claude" / "forge" / "settings.json"),
     }

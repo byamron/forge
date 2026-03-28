@@ -1070,6 +1070,57 @@ def find_repeated_prompts(sessions: dict) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Conversation pairs sampling (for deep analysis)
+# ---------------------------------------------------------------------------
+
+def _sample_pairs(all_pairs: List[dict],
+                  max_pairs: int = 30,
+                  max_per_session: int = 5,
+                  max_sessions: int = 6) -> List[dict]:
+    """Select a diverse sample of conversation pairs for deep LLM analysis.
+
+    Picks from the most recent sessions, up to max_per_session per session,
+    strips internal fields, and truncates text to keep the sample compact.
+    """
+    # Group by session, sort sessions by most recent pair timestamp
+    by_session = {}  # type: dict
+    for pair in all_pairs:
+        sid = pair.get("session_id", "")
+        by_session.setdefault(sid, []).append(pair)
+
+    # Sort sessions by their most recent timestamp (descending)
+    session_order = sorted(
+        by_session.keys(),
+        key=lambda s: max(
+            (p.get("timestamp", "") for p in by_session[s]),
+            default=""
+        ),
+        reverse=True,
+    )
+
+    sample = []
+    for sid in session_order[:max_sessions]:
+        pairs = by_session[sid]
+        # Take the most recent pairs from each session
+        pairs.sort(key=lambda p: p.get("turn_index", 0), reverse=True)
+        for pair in pairs[:max_per_session]:
+            sample.append({
+                "session_id": pair.get("session_id", ""),
+                "turn_index": pair.get("turn_index", 0),
+                "user_text": pair.get("user_text", "")[:300],
+                "classification": pair.get("classification", ""),
+                "correction_strength": pair.get("correction_strength", 0),
+                "assistant_text": pair.get("assistant_text", "")[:200],
+                "assistant_tools": pair.get("assistant_tools", []),
+                "assistant_files": pair.get("assistant_files", []),
+            })
+            if len(sample) >= max_pairs:
+                return sample
+
+    return sample
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1169,6 +1220,10 @@ def main():
             c for c in output["candidates"][key]
             if c["occurrences"] >= min_occ
         ]
+
+    # Build conversation pairs sample for deep analysis
+    all_pairs = build_conversation_pairs(sessions)
+    output["conversation_pairs_sample"] = _sample_pairs(all_pairs)
 
     json.dump(output, sys.stdout, indent=2)
     sys.stdout.write("\n")
