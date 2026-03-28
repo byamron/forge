@@ -25,6 +25,7 @@ class TestPluginJsonRequired:
     def test_has_agents_field(self):
         data = _load_json(PLUGIN_JSON)
         assert "agents" in data, "plugin.json missing 'agents' — marketplace installs won't register agents"
+        assert isinstance(data["agents"], list), "plugin.json 'agents' must be an array of file paths, not a directory string"
 
     def test_has_hooks_field(self):
         data = _load_json(PLUGIN_JSON)
@@ -35,10 +36,11 @@ class TestPluginJsonRequired:
         skills_dir = PLUGIN_JSON.parent.parent / data["skills"].lstrip("./")
         assert skills_dir.is_dir(), f"skills path '{data['skills']}' does not resolve to a directory"
 
-    def test_agents_path_resolves(self):
+    def test_agents_paths_resolve(self):
         data = _load_json(PLUGIN_JSON)
-        agents_dir = PLUGIN_JSON.parent.parent / data["agents"].lstrip("./")
-        assert agents_dir.is_dir(), f"agents path '{data['agents']}' does not resolve to a directory"
+        for agent_path in data["agents"]:
+            resolved = PLUGIN_JSON.parent.parent / agent_path.lstrip("./")
+            assert resolved.is_file(), f"agent path '{agent_path}' does not resolve to a file"
 
     def test_hooks_path_resolves(self):
         data = _load_json(PLUGIN_JSON)

@@ -402,3 +402,15 @@ Also deleted the `artifact-generator` agent (never invoked — the `/forge` skil
 **Alternatives considered:**
 - Adding the constraint only to security.md — rejected because agents and skills have their own instruction context and may not load rules files. Each layer should be self-contained.
 - Adding runtime enforcement (path checks in Python scripts) — the scripts already scope via `--project-root` and git remote matching. The new rules are LLM-instruction-level defense, complementing the existing code-level scoping.
+
+---
+
+## 2026-03-28: Agents manifest field must be an array, not a directory string
+
+**Decision:** Changed the `agents` field in `plugin.json` from `"./agents/"` (directory string) to `["./agents/session-analyzer.md"]` (array of file paths).
+
+**Why:** Claude Code's manifest validator rejects a directory string for `agents` with "Invalid Input". The `skills` field accepts a directory path, but `agents` requires an explicit array of file paths. This was a silent install failure — the plugin appeared in the Installed tab but with a validation error, meaning agents were never registered.
+
+**How this was caught:** After PR #14 (manifest validation tests), testing the installed plugin showed the error in the `/plugin` UI. The project's own tests passed because they validated the directory existed, not the field's type.
+
+**Lesson:** Manifest tests should validate field types against Claude Code's actual schema, not just check that referenced paths exist. Added an `isinstance(data["agents"], list)` assertion to prevent regression.
