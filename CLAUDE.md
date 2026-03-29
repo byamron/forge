@@ -51,6 +51,8 @@ All project documentation lives in `core-docs/`. Review and update these as part
 | History | `core-docs/history.md` | Decision log -- what was done, why, tradeoffs, branch+SHA |
 | Feedback | `core-docs/feedback.md` | Synthesized user feedback distilled into rules |
 | Workflow | `core-docs/workflow.md` | Agent workflow and session start checklist |
+| Spec | `core-docs/spec.md` | Original product & technical specification (v0.1) |
+| Roadmap | `core-docs/roadmap.md` | Original implementation roadmap with phase/task definitions |
 
 ## Development Infrastructure
 
