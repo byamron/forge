@@ -1,6 +1,72 @@
-# Forge — Decision History
+# History
 
-Significant design and technical decisions, captured as the project evolves. Each entry records what was decided, why, and what alternatives were considered.
+Detailed record of shipped work. Reverse chronological (newest first). This is not a changelog -- it captures the **why**, **tradeoffs**, and **decisions** behind each change so future sessions have full context on how the project evolved.
+
+---
+
+## How to Write an Entry
+
+```
+### [Short title of what was shipped]
+**Date:** YYYY-MM-DD
+**Branch:** branch-name
+**Commit:** [SHA or range]
+
+**What was done:**
+[Concrete deliverables -- what changed in user-facing terms.]
+
+**Why:**
+[The problem this solved or the goal it served.]
+
+**Design decisions:**
+- [UX or product choice + reasoning]
+
+**Technical decisions:**
+- [Implementation choice + reasoning]
+
+**Tradeoffs discussed:**
+- [Option A vs Option B -- why this one won]
+
+**Lessons learned:**
+- [What didn't work, what did, what to do differently]
+```
+
+Use the `SAFETY` marker on any entry that modifies error handling, persistence, data loss prevention, or fallback behavior.
+
+---
+
+## Entries
+
+### Infrastructure migration to standardized template
+**Date:** 2026-03-28
+**Branch:** optimize-infra
+**Commit:** [pending -- this commit]
+
+**What was done:**
+Migrated the project's Claude Code development infrastructure to the standardized project template. This affects how *we develop Forge*, not the plugin Forge ships to users. Changes:
+- Moved `.claude/references/history.md` → `core-docs/history.md`
+- Added `core-docs/` structure: plan.md, feedback.md, workflow.md
+- Added dev agents in `.claude/agents/`: planner, domain, testing, docs (separate from `forge/agents/` which ships to users)
+- Added dev skills in `.claude/skills/`: ship, audit (separate from `forge/skills/` which ships to users)
+- Added `.claude/rules/general.md` (documentation discipline, scope control)
+- Added `.claude/rules/documentation.md` (core-docs format rules)
+- Added `.claude/settings.json` (PreToolUse hook blocking writes to sensitive files)
+- Updated CLAUDE.md to reference core-docs and distinguish plugin vs dev infrastructure
+
+**Why:**
+Standardize on the project template used across all projects. Adds structured planning, feedback tracking, agent-based workflow, and shipping skills that the project was missing. All changes are additive -- nothing was deleted or overwritten.
+
+**Design decisions:**
+- Plugin files (`forge/skills/`, `forge/agents/`) and dev files (`.claude/skills/`, `.claude/agents/`) are in completely separate namespaces. CLAUDE.md explicitly documents the distinction to prevent confusion.
+- Template files for UI (agents/ui.md, rules/ui.md, rules/dev-server.md, design-language.md) were excluded -- Forge is a CLI plugin with no UI.
+- Template's safety.md was excluded -- the project's existing security.md is more comprehensive and Forge-specific.
+
+**Tradeoffs discussed:**
+- Full template adoption vs. selective: Chose selective. Forge is a plugin, not an app. Blindly copying UI-oriented files would add noise.
+- Moving history.md out of .claude/references/: Chose to move. core-docs/history.md is the standard location and core-docs/ is the canonical home for living project documentation. Git history is preserved via `git mv`.
+
+**How to revert:**
+This is a single commit. Run `git revert <SHA>` to undo the entire migration. All changes are additive (new files + one move), so reverting cleanly removes everything.
 
 ---
 

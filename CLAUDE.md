@@ -41,6 +41,29 @@ Automated tests live in `tests/` and run with `pytest`. They cover security inva
 
 Proprietary. No license file — all rights reserved by default. The `plugin.json` `license` field is omitted intentionally.
 
+## Core Documents
+
+All project documentation lives in `core-docs/`. Review and update these as part of your workflow.
+
+| Document | Path | Purpose |
+|----------|------|---------|
+| Plan | `core-docs/plan.md` | Living roadmap -- current focus, active work, completed features |
+| History | `core-docs/history.md` | Decision log -- what was done, why, tradeoffs, branch+SHA |
+| Feedback | `core-docs/feedback.md` | Synthesized user feedback distilled into rules |
+| Workflow | `core-docs/workflow.md` | Agent workflow and session start checklist |
+
+## Development Infrastructure
+
+**Important:** The plugin ships from `forge/`. The dev infrastructure in `.claude/` is for *us* when working on Forge. These are completely separate.
+
+| What | Plugin (ships to users) | Dev (our tools) |
+|------|------------------------|-----------------|
+| Skills | `forge/skills/` (`/forge`, `/forge:settings`, `/forge:version`) | `.claude/skills/` (`/ship`, `/audit`) |
+| Agents | `forge/agents/` (`session-analyzer`) | `.claude/agents/` (`planner`, `domain`, `testing`, `docs`) |
+| Rules | — | `.claude/rules/` (general, documentation, security, plugin-structure, python-scripts, skills-and-agents) |
+
+Dev agents are invoked with `claude --agent <name>`. See `core-docs/workflow.md` for the standard workflow.
+
 ## PR Readiness
 
 Before creating any PR, verify the following:
@@ -49,8 +72,8 @@ Before creating any PR, verify the following:
 - **Tests pass.** Run `python3 -m pytest tests/ -v` and confirm all tests pass. Do not create a PR with failing tests.
 - **CLAUDE.md is current.** If the change adds, removes, or renames skills, agents, scripts, hooks, or references, update the Architecture section of this file to match.
 - **Rules are current.** If the change introduces a new convention or constraint (e.g., a new required manifest field, a new security boundary), add or update the relevant rule in `.claude/rules/`.
-- **History is updated.** If the change involves a significant design decision, architectural change, or non-obvious tradeoff, add an entry to `.claude/references/history.md`.
+- **History is updated.** If the change involves a significant design decision, architectural change, or non-obvious tradeoff, add an entry to `core-docs/history.md`.
 
 ## History
 
-For the history of significant design and technical decisions, see `.claude/references/history.md`. **Proactively update this file** whenever you make a significant design decision, change an architectural approach, resolve a non-obvious tradeoff, or deviate from the spec. Each entry should capture what was decided, why, and what alternatives were considered.
+For the history of significant design and technical decisions, see `core-docs/history.md`. **Proactively update this file** whenever you make a significant design decision, change an architectural approach, resolve a non-obvious tradeoff, or deviate from the spec. Each entry should capture what was decided, why, and what alternatives were considered.
