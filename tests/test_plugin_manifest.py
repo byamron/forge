@@ -27,9 +27,15 @@ class TestPluginJsonRequired:
         assert "agents" in data, "plugin.json missing 'agents' — marketplace installs won't register agents"
         assert isinstance(data["agents"], list), "plugin.json 'agents' must be an array of file paths, not a directory string"
 
-    def test_has_hooks_field(self):
+    def test_no_hooks_field(self):
+        """hooks/hooks.json is auto-loaded by Claude Code; listing it in the manifest causes a duplicate error."""
         data = _load_json(PLUGIN_JSON)
-        assert "hooks" in data, "plugin.json missing 'hooks' — marketplace installs won't register hooks"
+        assert "hooks" not in data, "plugin.json must NOT have 'hooks' — Claude Code auto-loads hooks/hooks.json"
+
+    def test_hooks_file_exists(self):
+        """The auto-loaded hooks file must exist at the conventional path."""
+        hooks_file = PLUGIN_JSON.parent.parent / "hooks" / "hooks.json"
+        assert hooks_file.is_file(), "hooks/hooks.json must exist for auto-loading"
 
     def test_skills_path_resolves(self):
         data = _load_json(PLUGIN_JSON)
@@ -41,11 +47,6 @@ class TestPluginJsonRequired:
         for agent_path in data["agents"]:
             resolved = PLUGIN_JSON.parent.parent / agent_path.lstrip("./")
             assert resolved.is_file(), f"agent path '{agent_path}' does not resolve to a file"
-
-    def test_hooks_path_resolves(self):
-        data = _load_json(PLUGIN_JSON)
-        hooks_file = PLUGIN_JSON.parent.parent / data["hooks"].lstrip("./")
-        assert hooks_file.is_file(), f"hooks path '{data['hooks']}' does not resolve to a file"
 
 
 class TestVersionSync:
