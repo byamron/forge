@@ -37,6 +37,33 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Tier demotion / budget rebalancing (Task 2.5)
+**Date:** 2026-03-29
+**Branch:** next-roadmap-priorities
+**Commit:** [pending]
+
+**What was done:**
+Implemented the downward tier management path: Forge can now detect bloated content and suggest moving it to more appropriate tiers. Two demotion paths: (1) domain-specific CLAUDE.md entries → scoped rules with path frontmatter, (2) oversized rules (>80 lines) → reference docs. Budget-aware scoring marks demotions as high-impact when CLAUDE.md exceeds 200 lines. SKILL.md updated with two-step demotion handling (create new file + replace source content with pointer). Version bumped to 0.2.4.
+
+**Why:**
+Forge could promote content up (memory → artifacts) but couldn't suggest moving bloated content down. Users with large CLAUDE.md files full of domain-specific entries had no automated path to restructure. The tier system spec defined demotion as a core feature (alongside promotion) for context budget management.
+
+**Design decisions:**
+- New `demotion` proposal type rather than reusing existing `rule`/`reference_doc` types. Reason: demotions are two-step operations (create target + edit source), and the SKILL.md needs to distinguish them from simple creation proposals. The `demotion_detail` field carries source location, entries to extract, and pointer text.
+- Domain classifier uses ordered regex matching against framework names, file extensions, and directory patterns. First match wins (most specific first: frameworks → extensions → directories). This avoids complex multi-signal merging.
+- 2-entry minimum per domain group before suggesting a demotion. A single domain-specific line isn't worth a new rule file — the overhead of the file outweighs the benefit.
+- Replaced `_build_from_budget()` which created a generic `reference_doc` proposal that was scored "low" and silently filtered out. The new `_build_from_demotions()` creates specific, actionable proposals per domain group.
+
+**Technical decisions:**
+- Detection in `analyze-config.py` (zero-cost), proposal building in `build-proposals.py` (zero-cost), execution in SKILL.md (LLM-guided). Keeps the expensive part (reading files, deciding what to extract) in the LLM while detection stays cheap.
+- Oversized rule threshold set at 80 lines (Anthropic spec recommends 50-100 per rule). Chose the upper end to avoid false positives on legitimately detailed rules.
+- `finalize-proposals.py` maps `demotion` to a new `tier_management` stat category, separate from `corrections`.
+
+**Tradeoffs discussed:**
+- New type vs. reusing existing: A reuse approach (just add `demotion_detail` to `rule` proposals) would avoid SKILL.md changes, but makes filtering/categorization confusing. New type is cleaner.
+- Threshold 2 vs. 3 entries per domain: 2 is more aggressive (suggests more demotions) but a pair of entries is enough to justify a scoped rule file. 3 would miss many legitimate cases.
+- "Verbose CLAUDE.md section extraction" (multi-line entries that aren't domain-specific) was deferred — it overlaps with Task 2.4 (reference doc extraction) and requires more sophisticated content analysis.
+
 ### Infrastructure migration to standardized template
 **Date:** 2026-03-28
 **Branch:** optimize-infra

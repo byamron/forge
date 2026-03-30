@@ -114,6 +114,162 @@ class TestImpactScoring:
         assert bp._score_impact("hook", severity="high") == "high"
 
 
+class TestDemotionProposals:
+    """Verify tier demotion proposals from domain-specific entries and oversized rules."""
+
+    def _config_with_demotions(self, claude_md_to_rule=None,
+                                rule_to_reference=None,
+                                over_budget=False):
+        """Build a config dict with demotion_candidates."""
+        demotable = claude_md_to_rule or []
+        return {
+            "existing_skills": [],
+            "existing_agents": [],
+            "existing_hooks": [],
+            "demotion_candidates": {
+                "claude_md_to_rule": demotable,
+                "rule_to_reference": rule_to_reference or [],
+                "budget": {
+                    "claude_md_lines": 300 if over_budget else 100,
+                    "over_budget": over_budget,
+                    "total_demotable_lines": sum(
+                        len(g["entries"]) for g in demotable
+                    ),
+                },
+            },
+        }
+
+    def test_claude_md_to_rule_proposal_generated(self):
+        config = self._config_with_demotions(claude_md_to_rule=[{
+            "domain": "react",
+            "filename": "react",
+            "paths": ["**/*.tsx", "**/*.jsx"],
+            "entries": [
+                {"line_number": 10, "content": "Use functional components in .tsx files"},
+                {"line_number": 15, "content": "Always use React hooks for state"},
+            ],
+        }])
+        result = bp.build_proposals(config, {}, {}, [], [])
+        demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
+        assert len(demotions) == 1
+        assert demotions[0]["id"] == "demote-react-to-rule"
+        assert ".claude/rules/react.md" in demotions[0]["suggested_path"]
+        assert demotions[0]["demotion_detail"]["action"] == "claude_md_to_rule"
+        assert len(demotions[0]["demotion_detail"]["entries"]) == 2
+
+    def test_rule_to_reference_proposal_generated(self):
+        config = self._config_with_demotions(rule_to_reference=[{
+            "path": ".claude/rules/python.md",
+            "filename": "python",
+            "line_count": 120,
+        }])
+        result = bp.build_proposals(config, {}, {}, [], [])
+        demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
+        assert len(demotions) == 1
+        assert demotions[0]["id"] == "demote-python-rule-to-ref"
+        assert demotions[0]["demotion_detail"]["action"] == "rule_to_reference"
+
+    def test_over_budget_boosts_impact_to_high(self):
+        config = self._config_with_demotions(
+            claude_md_to_rule=[{
+                "domain": "testing",
+                "filename": "testing",
+                "paths": ["tests/**"],
+                "entries": [
+                    {"line_number": 5, "content": "Put tests in tests/ directory"},
+                    {"line_number": 6, "content": "Use pytest for all test files"},
+                ],
+            }],
+            over_budget=True,
+        )
+        result = bp.build_proposals(config, {}, {}, [], [])
+        demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
+        assert len(demotions) == 1
+        assert demotions[0]["impact"] == "high"
+
+    def test_under_budget_gives_medium_impact(self):
+        config = self._config_with_demotions(
+            claude_md_to_rule=[{
+                "domain": "python",
+                "filename": "python",
+                "paths": ["**/*.py"],
+                "entries": [
+                    {"line_number": 1, "content": "Use type hints in .py files"},
+                    {"line_number": 2, "content": "Use pathlib for Python filesystem ops"},
+                ],
+            }],
+            over_budget=False,
+        )
+        result = bp.build_proposals(config, {}, {}, [], [])
+        demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
+        assert demotions[0]["impact"] == "medium"
+
+    def test_no_demotion_candidates_produces_no_proposals(self):
+        config = self._config_with_demotions()
+        result = bp.build_proposals(config, {}, {}, [], [])
+        demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
+        assert len(demotions) == 0
+
+    def test_dismissed_demotion_excluded(self):
+        config = self._config_with_demotions(claude_md_to_rule=[{
+            "domain": "react",
+            "filename": "react",
+            "paths": ["**/*.tsx"],
+            "entries": [
+                {"line_number": 1, "content": "Use React hooks"},
+                {"line_number": 2, "content": "Prefer .tsx over .jsx"},
+            ],
+        }])
+        dismissed = [{"id": "demote-react-to-rule", "description": ""}]
+        result = bp.build_proposals(config, {}, {}, dismissed, [])
+        demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
+        assert len(demotions) == 0
+
+    def test_suggested_content_includes_paths_frontmatter(self):
+        config = self._config_with_demotions(claude_md_to_rule=[{
+            "domain": "go",
+            "filename": "go",
+            "paths": ["**/*.go"],
+            "entries": [
+                {"line_number": 1, "content": "Use gofmt on .go files"},
+                {"line_number": 2, "content": "Error handling in Go"},
+            ],
+        }])
+        result = bp.build_proposals(config, {}, {}, [], [])
+        demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
+        content = demotions[0]["suggested_content"]
+        assert "paths:" in content
+        assert "**/*.go" in content
+
+    def test_context_health_includes_demotion_count(self):
+        config = self._config_with_demotions(
+            claude_md_to_rule=[{
+                "domain": "react",
+                "filename": "react",
+                "paths": ["**/*.tsx"],
+                "entries": [
+                    {"line_number": 1, "content": "Use hooks"},
+                    {"line_number": 2, "content": "TSX only"},
+                ],
+            }],
+            rule_to_reference=[{
+                "path": ".claude/rules/big.md",
+                "filename": "big",
+                "line_count": 150,
+            }],
+        )
+        result = bp.build_proposals(config, {}, {}, [], [])
+        assert result["context_health"]["demotion_candidates"] == 2
+
+
+class TestDemotionImpactScoring:
+    def test_demotion_over_budget_is_high(self):
+        assert bp._score_impact("demotion", severity="over_budget") == "high"
+
+    def test_demotion_default_is_medium(self):
+        assert bp._score_impact("demotion") == "medium"
+
+
 class TestSimilarity:
     def test_identical_texts(self):
         assert bp._similarity("deploy to staging", "deploy to staging") == 1.0

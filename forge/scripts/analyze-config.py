@@ -15,7 +15,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -617,6 +617,121 @@ def find_placement_issues(root: Path):
 
 
 # ---------------------------------------------------------------------------
+# Demotion candidate detection
+# ---------------------------------------------------------------------------
+
+# Maps content signals to domains for grouping placement issues into rules
+_DOMAIN_CLASSIFIERS = [
+    # (domain_name, rule_filename, paths_frontmatter, content_patterns)
+    ("react", "react", ["**/*.tsx", "**/*.jsx"],
+     [r"\.tsx\b", r"\.jsx\b", r"\breact\b"]),
+    ("vue", "vue", ["**/*.vue"],
+     [r"\.vue\b", r"\bvue\b", r"\bnuxt\b"]),
+    ("angular", "angular", ["**/*.ts"],
+     [r"\bangular\b"]),
+    ("svelte", "svelte", ["**/*.svelte"],
+     [r"\bsvelte\b"]),
+    ("python", "python", ["**/*.py"],
+     [r"\.py\b", r"\bdjango\b", r"\bflask\b", r"\bfastapi\b"]),
+    ("rust", "rust", ["**/*.rs"],
+     [r"\.rs\b", r"\brustfmt\b", r"\bcargo\b"]),
+    ("go", "go", ["**/*.go"],
+     [r"\.go\b", r"\bgofmt\b"]),
+    ("testing", "testing",
+     ["tests/**", "test/**", "**/*.test.*", "**/*.spec.*"],
+     [r"\btests?/", r"\.test\.", r"\.spec\."]),
+    ("api", "api", ["**/api/**", "**/routes/**"],
+     [r"\bapi/", r"\broutes/"]),
+]
+
+
+def _classify_domain(content: str) -> Optional[Tuple[str, str, List[str]]]:
+    """Classify a line's domain. Returns (name, rule_filename, paths) or None."""
+    for name, filename, paths, patterns in _DOMAIN_CLASSIFIERS:
+        for pat in patterns:
+            if re.search(pat, content, re.IGNORECASE):
+                return (name, filename, paths)
+    return None
+
+
+def find_demotion_candidates(root: Path, placement_issues: List[Dict], context_budget: Dict) -> Dict[str, Any]:
+    """Find candidates for tier demotion.
+
+    Returns structured demotion candidates:
+    - claude_md_to_rule: domain-specific CLAUDE.md entries grouped by domain
+    - rule_to_reference: oversized rule files (>80 lines)
+    """
+    candidates = {
+        "claude_md_to_rule": [],
+        "rule_to_reference": [],
+    }  # type: Dict[str, Any]
+
+    # --- Group placement issues by domain ---
+    domain_groups = {}  # type: Dict[str, List[Dict]]
+
+    for issue in placement_issues:
+        if issue.get("type") != "domain_specific_in_claude_md":
+            continue
+        content = issue.get("content", "")
+        classified = _classify_domain(content)
+        if classified is None:
+            continue
+
+        name, filename, paths = classified
+        if name not in domain_groups:
+            domain_groups[name] = {
+                "domain": name,
+                "filename": filename,
+                "paths": paths,
+                "entries": [],
+            }
+        domain_groups[name]["entries"].append({
+            "line_number": issue.get("line_number", 0),
+            "content": content,
+        })
+
+    # Only suggest demotion when 2+ entries share a domain
+    # (a single entry isn't worth a whole rule file)
+    for group in domain_groups.values():
+        if len(group["entries"]) >= 2:
+            candidates["claude_md_to_rule"].append(group)
+
+    # --- Detect oversized rule files ---
+    rules_dir = root / ".claude" / "rules"
+    if rules_dir.is_dir():
+        for rule_file in sorted(rules_dir.rglob("*.md")):
+            if not rule_file.is_file():
+                continue
+            lines = _read_lines(rule_file)
+            if len(lines) > 80:
+                try:
+                    rel = str(rule_file.relative_to(root))
+                except ValueError:
+                    rel = str(rule_file)
+                try:
+                    unique_name = rule_file.relative_to(rules_dir).with_suffix("").as_posix().replace("/", "-")
+                except ValueError:
+                    unique_name = rule_file.stem
+                candidates["rule_to_reference"].append({
+                    "path": rel,
+                    "filename": unique_name,
+                    "line_count": len(lines),
+                })
+
+    # --- Budget context ---
+    claude_md_lines = context_budget.get("claude_md_lines", 0)
+    candidates["budget"] = {
+        "claude_md_lines": claude_md_lines,
+        "over_budget": claude_md_lines > 200,
+        "total_demotable_lines": sum(
+            len(g["entries"]) for g in candidates["claude_md_to_rule"]
+        ),
+    }
+
+    return candidates
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -649,6 +764,9 @@ def main():
         tech_stack = detect_tech_stack(root)
         gaps = find_gaps(root, tech_stack)
         placement_issues = find_placement_issues(root)
+        demotion_candidates = find_demotion_candidates(
+            root, placement_issues, budget
+        )
 
         output = {
             "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
@@ -660,6 +778,7 @@ def main():
             "tech_stack": tech_stack,
             "gaps": gaps,
             "placement_issues": placement_issues,
+            "demotion_candidates": demotion_candidates,
         }
 
         json.dump(output, sys.stdout, indent=2)
