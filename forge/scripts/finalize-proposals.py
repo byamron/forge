@@ -39,6 +39,7 @@ TYPE_TO_CATEGORY = {
     "rule": "corrections",
     "reference_doc": "corrections",
     "claude_md": "corrections",
+    "demotion": "tier_management",
 }
 
 
