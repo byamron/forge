@@ -253,3 +253,160 @@ class TestClassifyResponse:
         )
         # Very short text that matches confirmatory
         assert classification in ("confirmatory", "followup")
+
+
+# ---------------------------------------------------------------------------
+# Workflow pattern detection
+# ---------------------------------------------------------------------------
+
+class TestExtractPhaseSequence:
+    """Verify tool-use-to-phase mapping and consecutive dedup."""
+
+    def test_basic_read_write_execute(self):
+        messages = [
+            {"role": "assistant", "tool_uses": [{"name": "Read"}]},
+            {"role": "assistant", "tool_uses": [{"name": "Edit"}]},
+            {"role": "assistant", "tool_uses": [{"name": "Bash"}]},
+        ]
+        assert at._extract_phase_sequence(messages) == [
+            "read", "write", "execute",
+        ]
+
+    def test_consecutive_phases_collapsed(self):
+        messages = [
+            {"role": "assistant", "tool_uses": [
+                {"name": "Grep"}, {"name": "Read"},
+            ]},
+            {"role": "assistant", "tool_uses": [{"name": "Edit"}]},
+            {"role": "assistant", "tool_uses": [{"name": "Write"}]},
+        ]
+        # read, read -> collapsed to read; write, write -> collapsed to write
+        assert at._extract_phase_sequence(messages) == ["read", "write"]
+
+    def test_user_messages_ignored(self):
+        messages = [
+            {"role": "user", "tool_uses": [{"name": "Read"}]},
+            {"role": "assistant", "tool_uses": [{"name": "Edit"}]},
+        ]
+        assert at._extract_phase_sequence(messages) == ["write"]
+
+    def test_empty_messages(self):
+        assert at._extract_phase_sequence([]) == []
+
+    def test_no_tool_uses(self):
+        messages = [{"role": "assistant", "tool_uses": []}]
+        assert at._extract_phase_sequence(messages) == []
+
+
+class TestExtractSubsequences:
+    def test_basic_subsequences(self):
+        seq = ["read", "write", "execute"]
+        subs = at._extract_subsequences(seq, min_len=3, max_len=3)
+        assert subs == [("read", "write", "execute")]
+
+    def test_shorter_than_min_returns_empty(self):
+        seq = ["read", "write"]
+        subs = at._extract_subsequences(seq, min_len=3, max_len=5)
+        assert subs == []
+
+    def test_multiple_lengths(self):
+        seq = ["read", "write", "execute", "write"]
+        subs = at._extract_subsequences(seq, min_len=3, max_len=4)
+        assert len(subs) == 3  # two 3-grams + one 4-gram
+
+
+class TestFindWorkflowPatterns:
+    """Verify end-to-end workflow pattern detection."""
+
+    def _make_session(self, tools_sequence):
+        """Build a list of assistant messages from a tool name sequence."""
+        return [
+            {"role": "assistant", "tool_uses": [{"name": t}]}
+            for t in tools_sequence
+        ]
+
+    def test_recurring_pattern_detected(self):
+        # Same read->write->execute pattern across 4 sessions
+        sessions = {}
+        for i in range(4):
+            sessions["s{}".format(i)] = self._make_session(
+                ["Read", "Grep", "Edit", "Bash"]
+            )
+        patterns = at.find_workflow_patterns(sessions)
+        assert len(patterns) >= 1
+        found_rwe = any(
+            p["phase_sequence"] == ["read", "write", "execute"]
+            for p in patterns
+        )
+        assert found_rwe
+
+    def test_too_few_sessions_excluded(self):
+        # Only 2 sessions — below the 3-session minimum
+        sessions = {
+            "s0": self._make_session(["Read", "Edit", "Bash"]),
+            "s1": self._make_session(["Read", "Edit", "Bash"]),
+        }
+        patterns = at.find_workflow_patterns(sessions)
+        assert len(patterns) == 0
+
+    def test_short_sessions_excluded(self):
+        # Sessions with only 2 phases (below min_len=3 for subsequences)
+        sessions = {}
+        for i in range(5):
+            sessions["s{}".format(i)] = self._make_session(["Read", "Edit"])
+        patterns = at.find_workflow_patterns(sessions)
+        assert len(patterns) == 0
+
+    def test_pattern_has_descriptive_name(self):
+        sessions = {}
+        for i in range(4):
+            sessions["s{}".format(i)] = self._make_session(
+                ["Read", "Grep", "Edit", "Bash"]
+            )
+        patterns = at.find_workflow_patterns(sessions)
+        assert len(patterns) >= 1
+        # Should use the named workflow, not "Workflow: ..."
+        p = next(
+            p for p in patterns
+            if p["phase_sequence"] == ["read", "write", "execute"]
+        )
+        assert "plan-implement-verify" in p["pattern"]
+
+    def test_occurrences_deduplicated_per_session(self):
+        """A repeated subsequence within one session should count once per session."""
+        def _msg(tools):
+            return {
+                "role": "assistant",
+                "tool_uses": [{"name": t} for t in tools],
+            }
+
+        # Long session produces the same subsequences multiple times
+        long_session = [
+            _msg(["Read"]), _msg(["Edit"]), _msg(["Bash"]),
+            _msg(["Glob"]), _msg(["Write"]), _msg(["Bash"]),
+            _msg(["Read"]), _msg(["Edit"]), _msg(["Bash"]),
+        ]
+        sessions = {
+            "s1": long_session,
+            "s2": list(long_session),
+            "s3": list(long_session),
+        }
+        results = at.find_workflow_patterns(sessions)
+        # Every pattern's occurrences should be at most the number of sessions,
+        # since each subsequence is counted once per session after dedup
+        assert len(results) > 0
+        for r in results:
+            assert r["occurrences"] <= len(sessions)
+
+    def test_evidence_populated(self):
+        sessions = {}
+        for i in range(4):
+            sessions["s{}".format(i)] = self._make_session(
+                ["Read", "Edit", "Bash"]
+            )
+        patterns = at.find_workflow_patterns(sessions)
+        assert len(patterns) >= 1
+        p = patterns[0]
+        assert len(p["evidence"]) > 0
+        assert "session" in p["evidence"][0]
+        assert "tools_used" in p["evidence"][0]

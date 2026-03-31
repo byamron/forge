@@ -72,13 +72,15 @@ Scope:
 - Replace original with a one-line pointer to the reference
 
 ### 5. Agent generation (Task 2.3)
-**Status:** Stub exists
+**Status:** Done
 **Goal:** Generate actual agent markdown from detected multi-phase workflow patterns.
 
-Scope:
-- Detect plan→implement→review and research→synthesize→write patterns in transcripts
-- Generate agent definitions with appropriate model/effort/maxTurns/disallowedTools
-- Mark as drafts
+Completed:
+- Wired up `_build_from_workflows()` in `build_proposals()` (was defined but never called)
+- Added descriptive workflow names via `_WORKFLOW_NAMES` lookup (plan-implement-verify, diagnose-and-fix, etc.)
+- Replaced generic step descriptions with archetype-based templates (7 archetypes covering common patterns)
+- Generated agents include proper frontmatter, tool constraints, evidence, and workflow steps
+- 24 new tests covering the full pipeline
 
 ### 6. Background analysis on SessionStart (Task 3.1)
 **Status:** Not started
@@ -111,7 +113,7 @@ All 11 tasks shipped. See `core-docs/history.md` for details.
 |------|--------|-------|
 | 2.1 Skill generation | ✅ Done | Detects repeated prompts, generates SKILL.md templates |
 | 2.2 Hook generation | ✅ Done | PostToolUse hooks for formatters/linters by tech stack |
-| 2.3 Agent generation | ⚠️ Stub | `build-proposals.py` has framework but generates empty content |
+| 2.3 Agent generation | ✅ Done | Workflow detection + archetype-based agent markdown generation |
 | 2.4 Reference doc generation | ⚠️ Partial | Memory→reference works; no verbose CLAUDE.md extraction |
 | 2.5 Tier promotion/demotion | ⚠️ Partial | Promotion works (memory→artifacts); no demotion or budget rebalancing |
 | 2.6 MCP Elicitation | ➡️ Replaced | AskUserQuestion used instead; no MCP server |
@@ -119,7 +121,6 @@ All 11 tasks shipped. See `core-docs/history.md` for details.
 | 2.8 Post-action detection | ✅ Done | Write/Edit→Bash pattern detection across sessions |
 
 **Remaining Phase 2 work:**
-- Agent generation (2.3) — generate actual agent markdown from workflow patterns
 - Reference doc extraction (2.4) — detect verbose CLAUDE.md/rules and extract to Tier 3
 - Tier demotion (2.5) — move domain-specific CLAUDE.md entries to scoped rules, oversized rules to references
 

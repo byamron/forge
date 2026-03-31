@@ -1110,6 +1110,214 @@ def find_repeated_prompts(sessions: dict) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Workflow pattern detection (for agent generation)
+# ---------------------------------------------------------------------------
+
+# Map tool names to high-level workflow phases
+_TOOL_PHASE_MAP = {
+    "Read": "read",
+    "Grep": "read",
+    "Glob": "read",
+    "WebSearch": "read",
+    "WebFetch": "read",
+    "Write": "write",
+    "Edit": "write",
+    "Bash": "execute",
+    "Agent": "execute",
+}
+
+# Map common phase sequences to descriptive workflow names
+_WORKFLOW_NAMES = {
+    ("read", "write", "execute"): "plan-implement-verify",
+    ("read", "write"): "research-and-implement",
+    ("read", "execute"): "audit-and-validate",
+    ("read", "write", "execute", "write"): "iterative-development",
+    ("read", "write", "execute", "write", "execute"): "test-driven-development",
+    ("read", "execute", "write"): "diagnose-and-fix",
+    ("read", "write", "read"): "research-implement-review",
+    ("execute", "read", "write"): "run-analyze-fix",
+
+    ("write", "execute", "write"): "implement-test-iterate",
+}
+
+
+def _extract_phase_sequence(messages: list) -> List[str]:
+    """Extract an ordered sequence of workflow phases from a session's messages.
+
+    Looks at assistant turns, maps tool uses to phases, and returns the
+    collapsed sequence (consecutive duplicates removed).
+    """
+    phases = []  # type: List[str]
+    for msg in messages:
+        if msg.get("role") != "assistant":
+            continue
+        tool_uses = msg.get("tool_uses", [])
+        if not tool_uses:
+            continue
+        for tool in tool_uses:
+            name = tool.get("name", "")
+            phase = _TOOL_PHASE_MAP.get(name)
+            if phase:
+                phases.append(phase)
+
+    # Collapse consecutive identical phases
+    if not phases:
+        return []
+    collapsed = [phases[0]]
+    for p in phases[1:]:
+        if p != collapsed[-1]:
+            collapsed.append(p)
+    return collapsed
+
+
+def _extract_subsequences(sequence: List[str],
+                          min_len: int = 3,
+                          max_len: int = 5) -> List[Tuple[str, ...]]:
+    """Extract all contiguous subsequences of length min_len to max_len."""
+    results = []
+    for length in range(min_len, max_len + 1):
+        for i in range(len(sequence) - length + 1):
+            subseq = tuple(sequence[i:i + length])
+            results.append(subseq)
+    return results
+
+
+def find_workflow_patterns(sessions: dict) -> list:
+    """Detect recurring multi-phase workflows across sessions.
+
+    An 'agent' is warranted when users repeatedly orchestrate multi-step
+    processes (read -> write -> execute, etc.). Analyzes tool usage sequences
+    to find common workflow patterns.
+
+    Returns a list of candidate dicts suitable for the 'workflow_patterns'
+    candidates key.
+    """
+    # Step 1: Extract phase sequences and subsequences per session
+    session_subsequences = {}  # type: Dict[str, List[Tuple[str, ...]]]
+    session_tools = {}  # type: Dict[str, List[str]]
+    session_turn_counts = {}  # type: Dict[str, int]
+
+    for session_id, messages in sessions.items():
+        collapsed = _extract_phase_sequence(messages)
+        if len(collapsed) < 3:
+            continue
+        subseqs = _extract_subsequences(collapsed)
+        if subseqs:
+            session_subsequences[session_id] = subseqs
+            # Collect tool names for evidence
+            tools = []  # type: List[str]
+            turn_count = 0
+            for msg in messages:
+                if msg.get("role") == "assistant":
+                    turn_count += 1
+                    for tool in msg.get("tool_uses", []):
+                        name = tool.get("name", "")
+                        if name and name not in tools:
+                            tools.append(name)
+            session_tools[session_id] = tools
+            session_turn_counts[session_id] = turn_count
+
+    if not session_subsequences:
+        return []
+
+    # Step 2: Count subsequence frequency across sessions
+    # Track which sessions contain each subsequence
+    subseq_sessions = defaultdict(set)  # type: Dict[Tuple[str, ...], set]
+    subseq_total = Counter()  # type: Counter
+
+    for session_id, subseqs in session_subsequences.items():
+        # Count unique subsequences per session (avoid inflating from
+        # one long session)
+        seen_in_session = set()  # type: set
+        for subseq in subseqs:
+            subseq_sessions[subseq].add(session_id)
+            if subseq not in seen_in_session:
+                seen_in_session.add(subseq)
+                subseq_total[subseq] += 1
+
+    # Step 3: Filter to subsequences appearing in 3+ sessions
+    frequent = {
+        subseq: sids
+        for subseq, sids in subseq_sessions.items()
+        if len(sids) >= 3
+    }
+
+    if not frequent:
+        return []
+
+    # Step 4: Group similar subsequences — if a shorter subsequence is a
+    # prefix/suffix of a longer one with the same sessions, prefer the longer
+    # one. Otherwise keep the most common.
+    # Sort by (session count desc, total occurrences desc, length desc)
+    sorted_subseqs = sorted(
+        frequent.keys(),
+        key=lambda s: (len(frequent[s]), subseq_total[s], len(s)),
+        reverse=True,
+    )
+
+    # Deduplicate: skip subsequences that are strict sub-patterns of an
+    # already-selected pattern with similar session sets
+    selected = []  # type: List[Tuple[str, ...]]
+    selected_sessions = []  # type: List[set]
+    for subseq in sorted_subseqs:
+        sids = frequent[subseq]
+        # Check if this is a sub-pattern of an already selected one
+        is_sub = False
+        for i, sel in enumerate(selected):
+            # subseq is a sub-pattern if it's contained within sel
+            sel_str = " ".join(sel)
+            sub_str = " ".join(subseq)
+            if sub_str in sel_str:
+                # Check session overlap
+                overlap = len(sids & selected_sessions[i]) / max(len(sids), 1)
+                if overlap > 0.7:
+                    is_sub = True
+                    break
+        if not is_sub:
+            selected.append(subseq)
+            selected_sessions.append(sids)
+        # Limit to top 5 patterns
+        if len(selected) >= 5:
+            break
+
+    # Step 5: Build output candidates
+    results = []
+    for subseq in selected:
+        sids = frequent[subseq]
+        total_occ = subseq_total[subseq]
+        phase_list = list(subseq)
+        named = _WORKFLOW_NAMES.get(subseq)
+        if named:
+            pattern_text = named
+        else:
+            pattern_text = "workflow-" + "-".join(phase_list)
+
+        # Build evidence (up to 5 sessions)
+        evidence = []
+        for sid in sorted(sids)[:5]:
+            evidence.append({
+                "session": sid,
+                "tools_used": session_tools.get(sid, []),
+                "turn_count": session_turn_counts.get(sid, 0),
+            })
+
+        results.append({
+            "pattern": _sanitize_text(pattern_text, 200),
+            "phase_sequence": phase_list,
+            "occurrences": total_occ,
+            "sessions": sorted(sids),
+            "evidence": evidence,
+            "suggested_artifact": "agent",
+            "suggested_content": "",
+            "confidence": "high" if len(sids) >= 5 else "medium",
+        })
+
+    # Sort by occurrences descending
+    results.sort(key=lambda r: r["occurrences"], reverse=True)
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Conversation pairs sampling (for deep analysis)
 # ---------------------------------------------------------------------------
 
@@ -1222,6 +1430,7 @@ def main():
             "corrections": [],
             "post_actions": [],
             "repeated_prompts": [],
+            "workflow_patterns": [],
         },
     }
 
@@ -1256,6 +1465,7 @@ def main():
     output["candidates"]["corrections"] = find_corrections(sessions, stats)
     output["candidates"]["post_actions"] = find_post_actions(sessions)
     output["candidates"]["repeated_prompts"] = find_repeated_prompts(sessions)
+    output["candidates"]["workflow_patterns"] = find_workflow_patterns(sessions)
 
     # Filter by min occurrences
     min_occ = args.min_occurrences
