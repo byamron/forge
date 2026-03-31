@@ -176,17 +176,33 @@ def _generate_hook_content(gap: Dict) -> str:
     detail = gap.get("detail", {})
     hook_event = detail.get("hook_event", "PostToolUse")
     matcher = detail.get("matcher", "Write|Edit")
-    linter = detail.get("linter", "eslint")
+    tool_name = (detail.get("linter") or detail.get("formatter")
+                 or detail.get("test_framework") or "eslint")
 
-    if linter == "prettier" or "format" in linter.lower():
-        command = f'npx prettier --write "$CLAUDE_TOOL_INPUT_FILE_PATH"'
-    elif linter == "eslint":
-        command = (
+    # Formatter commands
+    _formatter_cmds = {
+        "prettier": 'npx prettier --write "$CLAUDE_TOOL_INPUT_FILE_PATH"',
+        "biome": 'npx biome format --write "$CLAUDE_TOOL_INPUT_FILE_PATH"',
+        "black": 'black "$CLAUDE_TOOL_INPUT_FILE_PATH"',
+        "rustfmt": 'rustfmt "$CLAUDE_TOOL_INPUT_FILE_PATH"',
+        "gofmt": 'gofmt -w "$CLAUDE_TOOL_INPUT_FILE_PATH"',
+        "ruff": 'ruff format "$CLAUDE_TOOL_INPUT_FILE_PATH"',
+    }
+    # Linter commands
+    _linter_cmds = {
+        "eslint": (
             'npx eslint --no-warn-ignored --quiet '
             '--max-warnings 0 "$CLAUDE_FILE_PATHS"'
-        )
+        ),
+        "ruff": 'ruff check "$CLAUDE_TOOL_INPUT_FILE_PATH"',
+    }
+
+    if tool_name in _formatter_cmds:
+        command = _formatter_cmds[tool_name]
+    elif tool_name in _linter_cmds:
+        command = _linter_cmds[tool_name]
     else:
-        command = f'{linter} "$CLAUDE_TOOL_INPUT_FILE_PATH"'
+        command = f'{tool_name} "$CLAUDE_TOOL_INPUT_FILE_PATH"'
 
     return json.dumps({
         "hooks": {
@@ -762,16 +778,17 @@ def _build_from_gaps(config: Dict, existing_hooks: List[Dict]) -> List[Dict]:
             if already_exists:
                 continue
 
-            linter = detail.get("linter", "unknown")
+            tool_name = (detail.get("linter") or detail.get("formatter")
+                         or detail.get("test_framework") or "unknown")
             proposals.append({
-                "id": f"auto-{linter}-hook",
+                "id": f"auto-{tool_name}-hook",
                 "type": "hook",
                 "impact": _score_impact("hook", severity=gap.get("severity", "")),
                 "confidence": "high",
-                "description": f"Auto-{linter} hook after Edit/Write operations",
+                "description": f"Auto-{tool_name} hook after Edit/Write operations",
                 "evidence_summary": (
-                    f"{linter.capitalize()} configured but no {hook_event} "
-                    f"hook exists — lint issues won't surface until manual run"
+                    f"{tool_name.capitalize()} configured but no {hook_event} "
+                    f"hook exists — issues won't surface until manual run"
                 ),
                 "suggested_content": _generate_hook_content(gap),
                 "suggested_path": ".claude/settings.json",
@@ -925,22 +942,51 @@ def _build_from_memory(memory: Dict) -> List[Dict]:
     """Build proposals from memory analysis (promotable notes)."""
     proposals = []
     auto_memory = memory.get("auto_memory", {})
+    seen_ids = set()  # type: set
 
     for note in auto_memory.get("promotable_notes", []):
-        topic = note.get("topic", "unknown")
+        # Derive topic from source filename (analyze-memory.py has no "topic" field)
+        source = note.get("source", "")
+        if source:
+            # Extract filename stem: "/path/to/swift_conventions.md" -> "swift_conventions"
+            source_stem = Path(source).stem
+            topic = re.sub(r'[_]+', ' ', source_stem).strip()
+        else:
+            topic = "unknown"
         suggestion = note.get("suggested_artifact", "rule")
         content = note.get("content", "")
 
         name = re.sub(r'[^a-z0-9]+', '-', topic.lower()).strip('-')[:30]
+
+        # Ensure unique IDs by appending index if needed
+        base_id = f"promote-{name}"
+        proposal_id = base_id
+        idx = 2
+        while proposal_id in seen_ids:
+            proposal_id = f"{base_id}-{idx}"
+            idx += 1
+        seen_ids.add(proposal_id)
+
+        # Map suggested_artifact to the correct target path
+        if suggestion == "reference_doc":
+            suggested_path = f".claude/references/{name}.md"
+        elif suggestion == "skill":
+            suggested_path = f".claude/skills/{name}/SKILL.md"
+        elif suggestion == "claude_md_entry":
+            suggested_path = "CLAUDE.md"
+        else:
+            # Default: rule
+            suggested_path = f".claude/rules/{name}.md"
+
         proposals.append({
-            "id": f"promote-{name}",
+            "id": proposal_id,
             "type": suggestion,
             "impact": "medium",
             "confidence": "medium",
             "description": f"Promote memory note to {suggestion}: {topic}",
             "evidence_summary": f"Auto-memory note about {topic}",
             "suggested_content": content,
-            "suggested_path": f".claude/rules/{name}.md",
+            "suggested_path": suggested_path,
             "status": "pending",
         })
 

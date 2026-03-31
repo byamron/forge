@@ -37,6 +37,30 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Fix proposal builder bugs (v0.2.7)
+**Date:** 2026-03-30
+**Branch:** test-forge-on-synthetic
+
+**What was done:**
+Fixed four bugs that caused proposals to contain "unknown" names, wrong file paths, wrong hook commands, and gibberish skill names:
+1. `_build_from_gaps()` always read `detail.get("linter")`, producing "auto-unknown-hook" for formatter and test framework gaps. Now checks `linter`, `formatter`, and `test_framework` keys.
+2. `_generate_hook_content()` had the same `detail.get("linter", "eslint")` bug — formatter gaps (prettier, black, etc.) generated eslint commands. Now uses a command lookup table keyed by tool name.
+3. `_build_from_memory()` read a nonexistent `topic` field (always "unknown") and hardcoded all paths to `.claude/rules/`. Now derives topic from `source` filename and maps `suggested_artifact` to the correct target path (rules, references, skills, or CLAUDE.md).
+4. `find_repeated_prompts()` lacked a `canonical_text` field, so `_build_from_repeated_prompts()` fell back to the generic pattern string ("Similar opening prompt in N sessions"), producing unusable skill names. Now emits the shortest user message from the group as `canonical_text`.
+
+**Why:**
+All four bugs caused the proposal review flow to present meaningless names, incorrect paths, and wrong hook commands, making generated artifacts useless or harmful without manual correction.
+
+**Technical decisions:**
+- Bugs 1-2: Used `or`-chain (`detail.get("linter") or detail.get("formatter") or ...`) rather than a mapping dict. The keys are mutually exclusive per gap type, so short-circuit `or` is clear and correct.
+- Bug 2: Replaced if/elif chain with explicit command lookup tables for formatters and linters. Covers all tools from `analyze-config.py`'s `_FORMATTER_COMMANDS` and `_LINTER_COMMANDS`.
+- Bug 3: Derive topic from `Path(source).stem` rather than adding a `topic` field to analyze-memory.py. The source filename already contains the meaningful name; adding redundant fields creates sync risk.
+- Bug 3: Added `seen_ids` set for duplicate ID detection since multiple memory notes can come from the same source file.
+- Bug 4: Used `min(group, key=lambda x: len(x[1]))` to pick the shortest message as canonical text. Shortest is most likely to be the reusable command form rather than a verbose first-time explanation.
+
+**Tradeoffs discussed:**
+- Could have fixed Bug 3 by adding a `topic` field in analyze-memory.py instead. Chose to derive from `source` to avoid changing the analyzer's output contract and keep the fix minimal.
+
 ### Agent generation (Task 2.3) — full implementation
 **Date:** 2026-03-30
 **Branch:** review-roadmap-priorities
