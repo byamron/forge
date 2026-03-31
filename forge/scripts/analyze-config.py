@@ -658,14 +658,17 @@ def find_gaps(root: Path, tech_stack: dict):
 # ---------------------------------------------------------------------------
 
 _EXTENSION_RE = re.compile(
-    r"\.(tsx|jsx|ts|js|py|rs|go|vue|svelte|test\.[tj]s|spec\.[tj]s)\b"
+    r"\.(tsx|jsx|ts|js|py|rs|go|swift|vue|svelte|test\.[tj]s|spec\.[tj]s)\b"
 )
 _FRAMEWORK_RE = re.compile(
-    r"\b(React|Vue|Angular|Django|Flask|FastAPI|Express|Next\.js|Nuxt|Svelte)\b",
+    r"\b(React|Vue|Angular|Django|Flask|FastAPI|Express|Next\.js|Nuxt|Svelte|SwiftUI)\b",
     re.IGNORECASE,
 )
+# No trailing \b — each pattern ends with / (non-word char) which naturally
+# terminates the match. A trailing \b fails when / is followed by a space
+# because both are non-word characters (no word boundary between them).
 _DIRECTORY_RE = re.compile(
-    r"\b(src/|tests/|test/|api/|components/|pages/|lib/|app/|routes/)\b"
+    r"\b(src/|tests/|test/|api/|components/|pages/|lib/|app/|routes/)"
 )
 # Tree-drawing characters used in file tree listings — skip these lines
 _TREE_CHARS_RE = re.compile(r"[├└│─┌┐┘┬┴┼]")
@@ -739,6 +742,8 @@ _DOMAIN_CLASSIFIERS = [
      [r"\bangular\b"]),
     ("svelte", "svelte", ["**/*.svelte"],
      [r"\bsvelte\b"]),
+    ("swift", "swift", ["**/*.swift"],
+     [r"\.swift\b", r"\bswiftui\b", r"\bswiftdata\b"]),
     ("python", "python", ["**/*.py"],
      [r"\.py\b", r"\bdjango\b", r"\bflask\b", r"\bfastapi\b"]),
     ("rust", "rust", ["**/*.rs"],

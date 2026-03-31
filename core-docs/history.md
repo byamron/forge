@@ -92,6 +92,51 @@ Over time, projects accumulate rules, skills, and CLAUDE.md entries that were on
 
 ---
 
+### Fix directory regex and add Swift domain support
+**Date:** 2026-03-30
+**Branch:** synthetic-test-datasets
+**Commit:** [pending]
+
+**What was done:**
+Fixed `_DIRECTORY_RE` in `analyze-config.py` which had a trailing `\b` that silently prevented matching directories followed by a space (e.g., "tests/ directory" was missed while "tests/unit" worked). Added Swift/SwiftUI support to placement detection (`_EXTENSION_RE`, `_FRAMEWORK_RE`), domain classifiers (`_DOMAIN_CLASSIFIERS`), and memory domain indicators (`DOMAIN_INDICATORS`). Version bumped to 0.2.6.
+
+**Why:**
+Discovered via synthetic test dataset work. The `\b` bug meant any CLAUDE.md entry writing `tests/` or `api/` followed by a space got zero placement detection — a real user-facing false negative. Swift gap meant SwiftUI projects got no domain-specific recommendations at all.
+
+**Technical decisions:**
+- **Removed trailing `\b` from `_DIRECTORY_RE`** — Every pattern already ends with `/` (a non-word char) which naturally terminates the match. The `\b` was never intentional: it only worked when `/` was followed by a word char (like `tests/unit`), not a space. Same fix applied to `DOMAIN_INDICATORS` in `analyze-memory.py`.
+- **Added `swift` domain classifier** — Patterns: `\.swift\b`, `\bswiftui\b`, `\bswiftdata\b`. Paths frontmatter: `**/*.swift`. Placed after svelte but before python in the classifier order.
+
+---
+
+### Synthetic test dataset generator for pipeline integration testing
+**Date:** 2026-03-30
+**Branch:** synthetic-test-datasets
+**Commit:** [pending]
+
+**What was done:**
+Created a synthetic fixture generator (`tests/generate_fixtures.py`) that produces 5 self-contained project profiles covering the full Forge analysis pipeline. Added 39 integration tests (`tests/test_integration_pipeline.py`) that run all four analysis scripts (config, transcripts, memory, build-proposals) on synthetic data. Updated `tests/conftest.py` with session-scoped fixtures for each profile. Total test count: 119 → 160, all passing in <0.3s.
+
+**Why:**
+The existing 119 tests were all unit-level — testing individual functions like `classify_response`, `_score_impact`, domain classification. Zero tests verified the full pipeline: config analysis + transcript analysis + memory analysis → build-proposals. Regressions in how scripts compose were invisible until manual `/forge` testing on real projects. Synthetic fixtures enable testing new features (stale config detection, agent generation) against known project shapes before real-world exposure.
+
+**Design decisions:**
+- **5 orthogonal profiles** — Each targets a distinct detection surface: swift-ios (memory-only path), react-ts (config analysis: tech stack, hooks, placement, demotion, budget), python-corrections (transcript analysis: corrections, post-actions, repeated prompts), rust-minimal (threshold enforcement — signals below threshold must NOT produce proposals), fullstack-mature (dismissed/suppressed filtering and dedup). This covers all proposal types and the most important negative path (threshold enforcement).
+- **Direct function calls, no subprocess** — Tests import analysis scripts as modules and call internal functions (same pattern as existing unit tests). This is faster, more debuggable, and avoids needing git remotes for transcript directory discovery. Transcript loading bypasses `find_all_project_session_dirs()` and parses JSONL from a `_transcripts/` directory directly.
+- **Session-scoped fixtures** — Profile materialization happens once per pytest run (`scope="session"`). The generation is deterministic, so sharing is safe. This keeps the 39 integration tests running in <0.3s.
+- **Standalone CLI** — `python3 tests/generate_fixtures.py --output-dir /tmp/fixtures` generates all profiles for manual inspection or ad-hoc testing outside pytest.
+
+**Technical decisions:**
+- **JSONL format mirrors real transcripts** — Entries use the exact same `{"type", "message", "timestamp", "sessionId", "isSidechain"}` structure that `parse_transcript()` expects. Tool use blocks in assistant messages include `name` and `input` fields.
+- **Transcript signals calibrated to thresholds** — Python-corrections profile has 6 pathlib corrections across 4 sessions (threshold: 3+ occurrences, 2+ sessions), 6 pytest post-actions across 4 sessions (threshold: 3+ occurrences, 2+ sessions), and 4 similar openers (threshold: 3+ sessions). Rust-minimal has 2 corrections in 1 session (below threshold) to test filtering.
+- **Dismissed and suppressed data in `_forge_data/`** — Profiles that test filtering (fullstack-mature) include `dismissed.json` and `analyzer-stats.json` with suppressed theme hashes. The theme hash is computed using the same algorithm as `analyze-transcripts.py`.
+
+**Tradeoffs discussed:**
+- **Synthetic vs. anonymized real data** — Synthetic data is deterministic, zero-privacy-risk, and can be precisely calibrated to trigger specific thresholds. Real anonymized data would test edge cases better but introduces privacy complexity and non-determinism. Chose synthetic with the option to add more profiles later for edge cases.
+- **Domain indicators vs. Swift support** — Discovered that `analyze-memory.py`'s `DOMAIN_INDICATORS` and `analyze-config.py`'s `_DIRECTORY_RE` don't cover `.swift` files or `\b...\b` patterns where the directory is followed by a space. The swift-ios profile works around this by using entries that match existing indicators (`.py`, `components/`). This is a pre-existing gap in the analysis scripts, not a fixture issue.
+
+---
+
 ### User-decision data moved to user-level storage (SAFETY)
 **Date:** 2026-03-30
 **Branch:** forge-data-git-strategy

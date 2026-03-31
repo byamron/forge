@@ -59,6 +59,17 @@ class TestClassifyDomain:
         assert result is not None
         assert result[0] == "api"
 
+    def test_swift(self):
+        result = ac._classify_domain("Use SwiftUI views for .swift files")
+        assert result is not None
+        assert result[0] == "swift"
+        assert "**/*.swift" in result[2]
+
+    def test_swift_framework(self):
+        result = ac._classify_domain("Use SwiftData for persistence")
+        assert result is not None
+        assert result[0] == "swift"
+
     def test_no_domain(self):
         result = ac._classify_domain("Keep functions short and focused")
         assert result is None
