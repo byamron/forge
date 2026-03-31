@@ -2,7 +2,7 @@
 
 ## Current Focus
 
-Parallel tracks: (1) real-world testing of Forge v0.2.6 via private marketplace install, and (2) continuing development on remaining Phase 2 + Phase 3 features.
+Parallel tracks: (1) real-world testing of Forge v0.2.6 via private marketplace install, (2) continuing development on remaining Phase 2 + Phase 3 features, and (3) synthetic test dataset infrastructure for pipeline integration testing.
 
 ## Handoff Notes
 
@@ -66,7 +66,18 @@ Implemented:
 - `finalize-proposals.py` tracks `demotion` type under `tier_management` category
 - 30 new tests covering domain classification, grouping, proposal generation, and budget rebalancing
 
-### 3. Stale config detection (Task 3.4)
+### 3. Synthetic test dataset generator
+**Status:** Complete
+**Goal:** Create a Python test infrastructure that generates realistic project fixtures (files, transcripts, memory) exercising the full analysis pipeline, enabling fast integration testing across different project profiles.
+
+Implemented:
+- `tests/generate_fixtures.py` — generator with 5 profiles (swift-ios, react-ts, python-corrections, rust-minimal, fullstack-mature)
+- `tests/test_integration_pipeline.py` — 39 integration tests running full pipeline on each profile
+- `tests/conftest.py` — session-scoped fixtures for each profile
+- Total test count: 119 → 160, all passing in <0.3s
+- Standalone CLI for manual fixture generation
+
+### 4. Stale config detection (Task 3.4)
 **Status:** Done (v0.2.6)
 **Goal:** Detect rules, skills, and CLAUDE.md entries that haven't been relevant in recent sessions.
 
@@ -76,16 +87,6 @@ Shipped:
 - Proposes archiving/removing stale content as `stale_artifact` proposals
 - Reports stale artifact count in `/forge` health summary table
 - Requires 10+ sessions minimum before running staleness analysis
-
-### 4. Reference doc extraction (Task 2.4)
-**Status:** Partial (memory→reference works)
-**Goal:** Auto-detect verbose CLAUDE.md entries and rules, extract to Tier 3 references.
-
-Scope:
-- Detect CLAUDE.md entries >3 lines that could be extracted
-- Detect rule files exceeding budget (~50-100 lines)
-- Generate reference doc with extracted content
-- Replace original with a one-line pointer to the reference
 
 ### 5. Agent generation (Task 2.3)
 **Status:** Done
@@ -98,7 +99,17 @@ Completed:
 - Generated agents include proper frontmatter, tool constraints, evidence, and workflow steps
 - 24 new tests covering the full pipeline
 
-### 6. Background analysis on SessionStart (Task 3.1)
+### 6. Reference doc extraction (Task 2.4)
+**Status:** Partial (memory→reference works)
+**Goal:** Auto-detect verbose CLAUDE.md entries and rules, extract to Tier 3 references.
+
+Scope:
+- Detect CLAUDE.md entries >3 lines that could be extracted
+- Detect rule files exceeding budget (~50-100 lines)
+- Generate reference doc with extracted content
+- Replace original with a one-line pointer to the reference
+
+### 7. Background analysis on SessionStart (Task 3.1)
 **Status:** Not started
 **Goal:** Auto-trigger analysis when enough unanalyzed sessions accumulate.
 
@@ -107,7 +118,7 @@ Scope:
 - Spawns background script-only analysis (no LLM tokens)
 - Must not block session start or noticeably impact quota
 
-### 7. Artifact effectiveness tracking (Task 3.5)
+### 8. Artifact effectiveness tracking (Task 3.5)
 **Status:** Not started
 **Goal:** After deploying an artifact, track whether the triggering pattern stops appearing.
 
@@ -177,6 +188,17 @@ Full analysis pipeline (config, transcripts, memory), unified `/forge` command, 
 
 ## Backlog
 
+### Transcript discovery integration tests
+**Priority:** High — `find_all_project_session_dirs` is the most fragile production code path (5 strategies, subprocess calls, path encoding/decoding, worktree resolution) with zero integration test coverage. A regression here means Forge silently analyzes nothing or leaks cross-project data.
+
+See `tests/DISCOVERY_TEST_PLAN.md` for detailed scope and approach.
+
+### Scoring system evaluation and tuning
+**Priority:** Medium — the correction classifier and theme clustering work on synthetic data but haven't been validated against real-world transcripts, where corrections are ambiguous and conversations are messy. Need a way to capture ground truth from real `/forge` runs and measure precision/recall systematically.
+
+See `tests/SCORING_EVAL_PLAN.md` for detailed scope and approach.
+
+### Other backlog
 - CI/CD setup (prerequisite: test suite exists)
 - Cross-project aggregation (Phase 4, opt-in only)
 - `forge:cleanup` command — detect and remove orphaned `~/.claude/forge/projects/<hash>/` directories for deleted projects

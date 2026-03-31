@@ -64,9 +64,9 @@ DEBUGGING_PATTERNS = [
 
 # Domain-specific indicators (for CLAUDE.local.md entries)
 DOMAIN_INDICATORS = [
-    re.compile(r"\.(tsx|jsx|ts|js|py|rs|go|vue|svelte)\b"),
-    re.compile(r"\b(React|Vue|Angular|Django|Flask|Express|Next\.js)\b", re.IGNORECASE),
-    re.compile(r"\b(src/|tests?/|api/|components/|pages/)\b"),
+    re.compile(r"\.(tsx|jsx|ts|js|py|rs|go|swift|vue|svelte)\b"),
+    re.compile(r"\b(React|Vue|Angular|Django|Flask|Express|Next\.js|SwiftUI)\b", re.IGNORECASE),
+    re.compile(r"\b(src/|tests?/|api/|components/|pages/)"),
 ]
 
 # Artifact type mapping
