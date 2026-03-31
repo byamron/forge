@@ -2,7 +2,7 @@
 
 ## Current Focus
 
-Parallel tracks: (1) real-world testing of Forge v0.2.6 via private marketplace install, (2) continuing development on remaining Phase 2 + Phase 3 features, and (3) synthetic test dataset infrastructure for pipeline integration testing.
+Parallel tracks: (1) real-world testing of Forge v0.2.7 via private marketplace install, and (2) continuing development on remaining Phase 2 + Phase 3 features.
 
 ## Handoff Notes
 
@@ -72,9 +72,9 @@ Implemented:
 
 Implemented:
 - `tests/generate_fixtures.py` — generator with 5 profiles (swift-ios, react-ts, python-corrections, rust-minimal, fullstack-mature)
-- `tests/test_integration_pipeline.py` — 39 integration tests running full pipeline on each profile
+- `tests/test_integration_pipeline.py` — 47 integration tests running full pipeline on each profile
 - `tests/conftest.py` — session-scoped fixtures for each profile
-- Total test count: 119 → 160, all passing in <0.3s
+- Total test count: 202, all passing in <0.3s
 - Standalone CLI for manual fixture generation
 
 ### 4. Stale config detection (Task 3.4)
@@ -173,6 +173,10 @@ All 11 tasks shipped. See `core-docs/history.md` for details.
 ---
 
 ## Recently Completed
+
+### Proposal builder bug fixes (v0.2.7)
+**Date:** 2026-03-30
+Ran full pipeline on synthetic data, found and fixed 4 bugs: "Auto-unknown" hook names, wrong hook commands for formatters, "unknown" memory proposal names/paths, gibberish repeated-prompt skill names. Added 8 regression tests (202 total).
 
 ### Enterprise hardening + test suite
 **Date:** 2026-03-28
