@@ -11,9 +11,9 @@ Forge's data access is equivalent to Claude Code's own — the plugin does not g
 
 ## Write boundary
 
-All file writes are restricted to `.claude/` (project-level config) and `CLAUDE.md` at the project root. Forge never writes to:
+All file writes are restricted to `.claude/` (project-level config — rules, skills, agents, settings), `CLAUDE.md` at the project root, and `~/.claude/forge/projects/<hash>/` (all Forge runtime data — decisions, caches, session log, shared across worktrees). Forge does not write to `.claude/forge/` in the project directory. Forge never writes to:
 - Source code directories
-- User-level config (`~/.claude/`) — the user can choose to move artifacts there, but Forge never suggests it
+- User-level config other than `~/.claude/forge/` (the user can choose to move artifacts elsewhere, but Forge never suggests it)
 - Absolute paths or paths containing `..`
 
 ## Shell safety
@@ -38,7 +38,7 @@ All file writes are restricted to `.claude/` (project-level config) and `CLAUDE.
 
 ## Destructive operations
 
-- Forge never deletes user files. The only deletion allowed is removing a legacy `.claude/commands/*.md` when the user explicitly approves migration to the modern skills format.
+- Forge never deletes user files. The only deletions allowed are: (1) removing a legacy `.claude/commands/*.md` when the user explicitly approves migration to the modern skills format, and (2) removing legacy `.claude/forge/` files during transparent migration to user-level storage (`resolve_user_file()` copies to new location then deletes old).
 - Forge never overwrites `.claude/settings.json`. It always reads, merges, and writes back.
 - Generated hooks must be non-destructive (format, lint, validate, log only).
 - Generated skills and agents are drafts. They never auto-execute — the user invokes them.

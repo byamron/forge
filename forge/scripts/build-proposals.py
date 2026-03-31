@@ -123,6 +123,11 @@ def _score_impact(proposal_type: str, occurrences: int = 0,
     if proposal_type == "reference_doc":
         return "low"
 
+    if proposal_type == "demotion":
+        if severity == "over_budget":
+            return "high"
+        return "medium"
+
     return "medium"
 
 
@@ -206,36 +211,99 @@ paths:
 # Proposal builders — one per source type
 # ---------------------------------------------------------------------------
 
-def _build_from_budget(config: Dict) -> List[Dict]:
-    """Build proposals from context budget issues."""
-    proposals = []
-    budget = config.get("context_budget", {})
-    lines = budget.get("claude_md_lines", 0)
-    tier1 = budget.get("estimated_tier1_lines", 0)
-    placement_issues = config.get("placement_issues", [])
+def _build_from_demotions(config: Dict) -> List[Dict]:
+    """Build proposals from demotion candidates (tier rebalancing).
 
-    if lines > 200 or tier1 > 200:
-        # Count domain-specific entries that could be extracted
-        extractable = [
-            p for p in placement_issues
-            if p.get("type") == "domain_specific_in_claude_md"
-        ]
-        n = len(extractable)
+    Detects domain-specific CLAUDE.md entries that should be scoped rules,
+    and oversized rules that should become reference docs.
+    """
+    proposals = []
+    demotions = config.get("demotion_candidates", {})
+    if not demotions:
+        return proposals
+
+    budget_info = demotions.get("budget", {})
+    over_budget = budget_info.get("over_budget", False)
+
+    # --- CLAUDE.md → scoped rules ---
+    for group in demotions.get("claude_md_to_rule", []):
+        domain = group["domain"]
+        filename = group["filename"]
+        paths = group["paths"]
+        entries = group["entries"]
+        lines_saved = len(entries)
+
+        paths_yaml = "\n".join(f'  - "{p}"' for p in paths)
+        entries_md = "\n".join(f"- {e['content']}" for e in entries)
+
+        suggested_content = (
+            f"---\npaths:\n{paths_yaml}\n---\n\n"
+            f"# {domain.title()} conventions\n\n{entries_md}\n"
+        )
+        pointer = (
+            f"See .claude/rules/{filename}.md for {domain} conventions."
+        )
+
         proposals.append({
-            "id": "reduce-claude-md-size",
-            "type": "reference_doc",
-            "impact": "high" if lines > 400 else "medium",
+            "id": f"demote-{filename}-to-rule",
+            "type": "demotion",
+            "impact": _score_impact(
+                "demotion",
+                severity="over_budget" if over_budget else "",
+            ),
             "confidence": "high",
             "description": (
-                f"CLAUDE.md is {lines} lines — extract sections to "
-                f".claude/rules/ or .claude/references/ to reduce context weight"
+                f"Move {lines_saved} {domain}-specific entries from "
+                f"CLAUDE.md to .claude/rules/{filename}.md"
             ),
             "evidence_summary": (
-                f"{lines} lines (Anthropic recommends under 200). "
-                f"{n} domain-specific sections could be extracted."
+                f"{lines_saved} entries in CLAUDE.md are specific to "
+                f"{domain} — scoping them to relevant files reduces "
+                f"always-loaded context by ~{lines_saved} lines"
             ),
-            "suggested_content": "",  # LLM determines what to extract
-            "suggested_path": "CLAUDE.md",
+            "suggested_content": suggested_content,
+            "suggested_path": f".claude/rules/{filename}.md",
+            "demotion_detail": {
+                "action": "claude_md_to_rule",
+                "source_file": "CLAUDE.md",
+                "entries": entries,
+                "pointer": pointer,
+                "lines_saved": lines_saved,
+            },
+            "status": "pending",
+        })
+
+    # --- Oversized rules → reference docs ---
+    for rule in demotions.get("rule_to_reference", []):
+        rule_path = rule["path"]
+        filename = rule["filename"]
+        line_count = rule["line_count"]
+
+        proposals.append({
+            "id": f"demote-{filename}-rule-to-ref",
+            "type": "demotion",
+            "impact": "medium",
+            "confidence": "medium",
+            "description": (
+                f"Extract detail from {rule_path} ({line_count} lines) "
+                f"to .claude/references/{filename}.md"
+            ),
+            "evidence_summary": (
+                f"{rule_path} is {line_count} lines — Anthropic recommends "
+                f"50-100 lines per rule. Extract verbose sections to a "
+                f"reference doc."
+            ),
+            "suggested_content": "",  # LLM reads the rule and decides
+            "suggested_path": f".claude/references/{filename}.md",
+            "demotion_detail": {
+                "action": "rule_to_reference",
+                "source_file": rule_path,
+                "line_count": line_count,
+                "pointer": (
+                    f"For detailed {filename} guidelines, see "
+                    f".claude/references/{filename}.md"
+                ),
+            },
             "status": "pending",
         })
 
@@ -655,10 +723,20 @@ def _build_context_health(config: Dict,
         counts.append(f'{health[key]} {label}')
     parts.append(", ".join(counts))
 
+    # Demotion candidates
+    demotions = config.get("demotion_candidates", {})
+    demotion_count = (
+        len(demotions.get("claude_md_to_rule", []))
+        + len(demotions.get("rule_to_reference", []))
+    )
+    health["demotion_candidates"] = demotion_count
+
     if health["placement_note_count"] > 0:
         parts.append(
             f'{health["placement_note_count"]} placement suggestions'
         )
+    if demotion_count > 0:
+        parts.append(f"{demotion_count} demotion candidates")
 
     if health["stale_artifacts_count"] > 0:
         parts.append(
@@ -691,7 +769,7 @@ def build_proposals(config: Dict, transcripts: Dict, memory: Dict,
 
     # Build proposals from all sources
     all_proposals = []
-    all_proposals.extend(_build_from_budget(config))
+    all_proposals.extend(_build_from_demotions(config))
     all_proposals.extend(_build_from_gaps(config, existing_hooks))
     all_proposals.extend(
         _build_from_repeated_prompts(transcripts, existing_skills)

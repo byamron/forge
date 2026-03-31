@@ -26,11 +26,19 @@ if [ -z "$PROJECT_ROOT" ]; then
     done
 fi
 
-# Create forge directory if needed
-mkdir -p "$PROJECT_ROOT/.claude/forge"
+# Resolve the user-level data directory for this project.
+# Uses project_identity.py (same module that Python scripts import) so the
+# hash computation is consistent everywhere.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+USER_DATA_DIR=$(python3 "$SCRIPT_DIR/project_identity.py" --project-root "$PROJECT_ROOT" 2>/dev/null || echo "")
+if [ -z "$USER_DATA_DIR" ]; then
+  # Fallback: write to project-level (legacy location) if resolution fails
+  USER_DATA_DIR="$PROJECT_ROOT/.claude/forge"
+fi
+mkdir -p "$USER_DATA_DIR"
 
-# Append session entry
-echo "$TIMESTAMP $SESSION_ID" >> "$PROJECT_ROOT/.claude/forge/unanalyzed-sessions.log"
+# Append session entry to the shared (cross-worktree) session log
+echo "$TIMESTAMP $SESSION_ID" >> "$USER_DATA_DIR/unanalyzed-sessions.log"
 
 # --- Update repo index for cross-worktree discovery ---
 # Maps git remote URL -> list of Claude Code project directory names.

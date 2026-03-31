@@ -2,7 +2,7 @@
 
 ## Current Focus
 
-Parallel tracks: (1) real-world testing of Forge v0.2.4 via private marketplace install, and (2) continuing development on remaining Phase 2 + Phase 3 features.
+Parallel tracks: (1) real-world testing of Forge v0.2.6 via private marketplace install, and (2) continuing development on remaining Phase 2 + Phase 3 features.
 
 ## Handoff Notes
 
@@ -18,6 +18,18 @@ Original spec (`core-docs/spec.md`) and roadmap (`core-docs/roadmap.md`) are che
 - Deep analysis mode was added (not in original roadmap) — background LLM pass for contextual patterns
 
 ## Active Work Items
+
+### 0. User-level data storage migration
+**Status:** Complete
+**Goal:** Eliminate `.claude/forge/` from the project directory entirely. All Forge runtime data (decisions, caches, session log) stored in `~/.claude/forge/projects/<hash>/`, shared across worktrees, invisible to git.
+
+Implemented:
+- `project_identity.py` — shared module for project hash (git remote URL → SHA-256) and user data dir resolution
+- All scripts updated: `finalize-proposals.py`, `cache-manager.py`, `read-settings.py`, `write-settings.py`, `check-pending.py`, `log-session.sh`
+- Transparent migrate-on-read from legacy `.claude/forge/` location
+- `project_identity.py` CLI for shell script interop
+- 13 new tests in `test_project_identity.py`, cache manager tests updated
+- Version bumped to 0.2.5
 
 ### 1. Real-world testing via marketplace install
 **Status:** Starting
@@ -42,17 +54,20 @@ What to watch for:
 - Python 3.8 compat on target machines
 
 ### 2. Tier demotion / budget rebalancing (Task 2.5)
-**Status:** Not started
-**Goal:** Complete the tier management system — Forge can promote content up but can't yet suggest moving bloated content down.
+**Status:** Complete
+**Goal:** Complete the tier management system — Forge can promote content up and now suggests moving bloated content down.
 
-Scope:
-- Detect domain-specific CLAUDE.md entries → suggest moving to scoped rules
-- Detect oversized rules → suggest extracting detail to Tier 3 references
-- Budget rebalancing — when CLAUDE.md exceeds threshold, prioritize which entries to demote
-- Leave one-line pointers in the original location after extraction
+Implemented:
+- Domain classifier groups placement issues by domain (react, python, testing, etc.)
+- `find_demotion_candidates()` in analyze-config.py groups domain-specific CLAUDE.md entries and detects oversized rules (>80 lines)
+- `_build_from_demotions()` in build-proposals.py creates `demotion` proposals with `demotion_detail` for two-step execution
+- Budget-aware impact scoring (high when CLAUDE.md >200 lines, medium otherwise)
+- SKILL.md updated with demotion handling: create new file + replace source content with one-line pointer
+- `finalize-proposals.py` tracks `demotion` type under `tier_management` category
+- 30 new tests covering domain classification, grouping, proposal generation, and budget rebalancing
 
 ### 3. Stale config detection (Task 3.4)
-**Status:** Done (v0.2.4)
+**Status:** Done (v0.2.6)
 **Goal:** Detect rules, skills, and CLAUDE.md entries that haven't been relevant in recent sessions.
 
 Shipped:
@@ -114,7 +129,7 @@ All 11 tasks shipped. See `core-docs/history.md` for details.
 | 2.2 Hook generation | ✅ Done | PostToolUse hooks for formatters/linters by tech stack |
 | 2.3 Agent generation | ⚠️ Stub | `build-proposals.py` has framework but generates empty content |
 | 2.4 Reference doc generation | ⚠️ Partial | Memory→reference works; no verbose CLAUDE.md extraction |
-| 2.5 Tier promotion/demotion | ⚠️ Partial | Promotion works (memory→artifacts); no demotion or budget rebalancing |
+| 2.5 Tier promotion/demotion | ✅ Done | Promotion (memory→artifacts) + demotion (CLAUDE.md→rules, rules→references) |
 | 2.6 MCP Elicitation | ➡️ Replaced | AskUserQuestion used instead; no MCP server |
 | 2.7 Repeated prompt detection | ✅ Done | TF-IDF + Jaccard similarity, 4+ session threshold |
 | 2.8 Post-action detection | ✅ Done | Write/Edit→Bash pattern detection across sessions |
@@ -122,7 +137,7 @@ All 11 tasks shipped. See `core-docs/history.md` for details.
 **Remaining Phase 2 work:**
 - Agent generation (2.3) — generate actual agent markdown from workflow patterns
 - Reference doc extraction (2.4) — detect verbose CLAUDE.md/rules and extract to Tier 3
-- Tier demotion (2.5) — move domain-specific CLAUDE.md entries to scoped rules, oversized rules to references
+- ~~Tier demotion (2.5) — move domain-specific CLAUDE.md entries to scoped rules, oversized rules to references~~ ✅
 
 ### Phase 3: Proactive Intelligence (v0.3) — ~30% complete
 
@@ -161,5 +176,7 @@ Full analysis pipeline (config, transcripts, memory), unified `/forge` command, 
 
 ## Backlog
 
-- CI/CD setup (prerequisite: test suite exists ✓)
+- CI/CD setup (prerequisite: test suite exists)
 - Cross-project aggregation (Phase 4, opt-in only)
+- `forge:cleanup` command — detect and remove orphaned `~/.claude/forge/projects/<hash>/` directories for deleted projects
+- Hash collision resilience — bump project hash from 12 to 16 hex chars if user base grows significantly

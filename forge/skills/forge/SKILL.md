@@ -85,7 +85,7 @@ Using the `context_health` from Step 1, show a brief health table:
 | Stale artifacts  | 0     | ✓      |
 ```
 
-Use ⚠ for any metric with gaps or issues. If `context_health.over_budget` is true, mark CLAUDE.md with ⚠. If `context_health.stale_artifacts_count` > 0, mark Stale artifacts with ⚠.
+Use ⚠ for any metric with gaps or issues. If `context_health.over_budget` is true, mark CLAUDE.md with ⚠. If `context_health.stale_artifacts_count` > 0, mark Stale artifacts with ⚠. If `context_health.demotion_candidates` > 0, add a row showing the count with ⚠.
 
 ### Deep mode: wait for background analysis
 
@@ -166,6 +166,17 @@ Generate the artifact content yourself following the templates from the referenc
 - **Skill updates**: Edit the existing file at `suggested_path`. If legacy command (`.claude/commands/*.md`), migrate to `.claude/skills/<name>/SKILL.md` and delete the old file.
 - **Agents**: Write to `.claude/agents/<name>.md`
 - **Reference docs**: Write to `.claude/references/<name>.md`. Add a pointer to CLAUDE.md.
+- **Demotions** (type `demotion`): Two-step operation — create the new file and update the source:
+  1. Read `demotion_detail` from the proposal.
+  2. If `action` is `claude_md_to_rule`:
+     - Write the new rule file to `suggested_path` with `suggested_content` (refine the draft into production-quality rule content with proper paths frontmatter).
+     - Read CLAUDE.md and remove the lines listed in `demotion_detail.entries` (match by content, not line number — lines may have shifted).
+     - Insert `demotion_detail.pointer` in CLAUDE.md where the first removed entry was.
+  3. If `action` is `rule_to_reference`:
+     - Read the source rule file at `demotion_detail.source_file`.
+     - Extract verbose sections (detailed examples, long explanations) to a new reference doc at `suggested_path`.
+     - Replace the extracted sections in the rule with `demotion_detail.pointer`.
+     - Keep the rule's frontmatter and core directives intact — only move the detail.
 - All artifacts go to project-level (`.claude/`), never user-level (`~/.claude/`).
 
 For **modified** proposals: ask what the user wants to change, adjust the content, show the updated preview, then ask for approval again.

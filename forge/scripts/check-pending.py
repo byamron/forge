@@ -18,6 +18,8 @@ import json
 import sys
 from pathlib import Path
 
+from project_identity import get_user_data_dir, resolve_user_file
+
 LEVEL_THRESHOLDS = {
     "quiet": None,
     "balanced": 5,
@@ -34,8 +36,8 @@ def find_project_root() -> Path:
     return Path.cwd().resolve()
 
 
-def load_nudge_level(forge_dir: Path) -> str:
-    settings_path = forge_dir / "settings.json"
+def load_nudge_level(project_root: Path) -> str:
+    settings_path = resolve_user_file(project_root, "settings.json")
     if settings_path.is_file():
         try:
             with open(settings_path, "r") as f:
@@ -48,8 +50,8 @@ def load_nudge_level(forge_dir: Path) -> str:
     return "balanced"
 
 
-def count_unanalyzed_sessions(forge_dir: Path) -> int:
-    log_path = forge_dir / "unanalyzed-sessions.log"
+def count_unanalyzed_sessions(user_data_dir: Path) -> int:
+    log_path = user_data_dir / "unanalyzed-sessions.log"
     if not log_path.is_file():
         return 0
     try:
@@ -59,8 +61,8 @@ def count_unanalyzed_sessions(forge_dir: Path) -> int:
         return 0
 
 
-def count_pending_proposals(forge_dir: Path) -> int:
-    pending_path = forge_dir / "proposals" / "pending.json"
+def count_pending_proposals(project_root: Path) -> int:
+    pending_path = resolve_user_file(project_root, "proposals/pending.json")
     if not pending_path.is_file():
         return 0
     try:
@@ -81,21 +83,21 @@ def count_pending_proposals(forge_dir: Path) -> int:
 
 def main():
     root = find_project_root()
-    forge_dir = root / ".claude" / "forge"
+    user_data_dir = get_user_data_dir(root)
 
-    # Check nudge level
-    level = load_nudge_level(forge_dir)
+    # Check nudge level (user-level storage)
+    level = load_nudge_level(root)
     threshold = LEVEL_THRESHOLDS.get(level)
 
     # Quiet mode — never nudge
     if threshold is None:
         return
 
-    # Check for pending proposals first (always worth mentioning)
-    pending_count = count_pending_proposals(forge_dir)
+    # Check for pending proposals (user-level storage)
+    pending_count = count_pending_proposals(root)
 
-    # Check unanalyzed session count against threshold
-    unanalyzed = count_unanalyzed_sessions(forge_dir)
+    # Check unanalyzed session count (user-level, shared across worktrees)
+    unanalyzed = count_unanalyzed_sessions(user_data_dir)
 
     # Nothing to say
     if pending_count == 0 and unanalyzed < threshold:
