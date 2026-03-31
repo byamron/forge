@@ -37,6 +37,32 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Agent generation (Task 2.3) — full implementation
+**Date:** 2026-03-30
+**Branch:** review-roadmap-priorities
+
+**What was done:**
+Completed agent generation, closing the last gap in artifact type coverage. Forge can now detect recurring multi-phase workflow patterns in session transcripts and generate full agent markdown definitions with proper frontmatter, tool constraints, workflow steps, and evidence.
+
+**Why:**
+The framework existed (`_build_from_workflows`, `_generate_agent_content`) but was never wired into the main pipeline and produced generic content. This was the last stub in Phase 2 artifact coverage.
+
+**Design decisions:**
+- Archetype-based generation: 7 named archetypes (plan-implement-verify, diagnose-and-fix, test-driven-development, etc.) map phase sequences to rich role descriptions and step templates. Unknown sequences fall back to phase-set heuristics.
+- Descriptive pattern naming: `_WORKFLOW_NAMES` lookup in the transcript analyzer replaces generic "Workflow: read -> write -> execute" with "plan-implement-verify". This flows through to proposal IDs and agent file names.
+- Evidence inclusion: Generated agents include a summary of the sessions that triggered the pattern, giving users confidence the suggestion is data-driven.
+
+**Technical decisions:**
+- The main bug was that `_build_from_workflows()` was defined but never called in `build_proposals()` — a single missing line. The rest was improving content quality.
+- Agent archetypes are a dict keyed by phase tuple, making them O(1) to look up and easy to extend.
+- `_archetype_from_phases()` provides a fallback for sequences not in the archetype dict, using phase-set heuristics.
+
+**Tradeoffs discussed:**
+- Per-archetype step templates vs. generic phase descriptions: Chose per-archetype. The whole point of agent generation is producing useful drafts, not TODO-filled stubs. Generic descriptions defeat the purpose.
+- Naming in transcript analyzer vs. proposal builder: Chose to name in the transcript analyzer (`_WORKFLOW_NAMES`). The pattern name flows through the entire pipeline (proposals, file paths, agent names), so it's best set at the source.
+
+---
+
 ### Stale config detection (Task 3.4)
 **Date:** 2026-03-30
 **Branch:** roadmap-next-priorities
@@ -124,7 +150,6 @@ Forge could promote content up (memory → artifacts) but couldn't suggest movin
 - New type vs. reusing existing: A reuse approach (just add `demotion_detail` to `rule` proposals) would avoid SKILL.md changes, but makes filtering/categorization confusing. New type is cleaner.
 - Threshold 2 vs. 3 entries per domain: 2 is more aggressive (suggests more demotions) but a pair of entries is enough to justify a scoped rule file. 3 would miss many legitimate cases.
 - "Verbose CLAUDE.md section extraction" (multi-line entries that aren't domain-specific) was deferred — it overlaps with Task 2.4 (reference doc extraction) and requires more sophisticated content analysis.
-
 ### Infrastructure migration to standardized template
 **Date:** 2026-03-28
 **Branch:** optimize-infra
