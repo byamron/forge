@@ -30,6 +30,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
+from project_identity import get_user_data_dir
+
 
 # Maps proposal types to analyzer stat categories
 TYPE_TO_CATEGORY = {
@@ -65,7 +67,7 @@ def _write_json_atomic(path: Path, data: Any) -> None:
 
 def _update_pending(project_root: Path, all_proposals: List[Dict]) -> None:
     """Write the full proposal list with updated statuses."""
-    pending_path = project_root / ".claude" / "forge" / "proposals" / "pending.json"
+    pending_path = get_user_data_dir(project_root) / "proposals" / "pending.json"
     pending_path.parent.mkdir(parents=True, exist_ok=True)
     _write_json_atomic(pending_path, all_proposals)
 
@@ -74,7 +76,7 @@ def _record_applied(project_root: Path, applied: List[Dict]) -> None:
     """Append applied proposals to history."""
     if not applied:
         return
-    history_path = project_root / ".claude" / "forge" / "history" / "applied.json"
+    history_path = get_user_data_dir(project_root) / "history" / "applied.json"
     existing = _load_json(history_path)
     if not isinstance(existing, list):
         existing = []
@@ -92,7 +94,7 @@ def _record_dismissed(project_root: Path, dismissed: List[Dict]) -> None:
     """Append dismissed proposals to dismissed.json."""
     if not dismissed:
         return
-    dismissed_path = project_root / ".claude" / "forge" / "dismissed.json"
+    dismissed_path = get_user_data_dir(project_root) / "dismissed.json"
     existing = _load_json(dismissed_path)
     if not isinstance(existing, list):
         existing = []

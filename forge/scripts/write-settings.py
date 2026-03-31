@@ -15,6 +15,8 @@ import os
 import sys
 from pathlib import Path
 
+from project_identity import get_user_data_dir
+
 VALID_LEVELS = ("quiet", "balanced", "eager")
 VALID_DEPTHS = ("standard", "deep")
 
@@ -58,7 +60,7 @@ def main():
         sys.exit(1)
 
     root = find_project_root()
-    settings_path = root / ".claude" / "forge" / "settings.json"
+    settings_path = get_user_data_dir(root) / "settings.json"
 
     # Load existing settings
     settings = {}

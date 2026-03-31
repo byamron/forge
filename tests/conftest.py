@@ -8,7 +8,6 @@ from pathlib import Path
 def tmp_project(tmp_path):
     """Create a minimal project directory with .claude/ structure."""
     (tmp_path / ".claude" / "rules").mkdir(parents=True)
-    (tmp_path / ".claude" / "forge" / "cache").mkdir(parents=True)
     (tmp_path / ".claude" / "skills").mkdir(parents=True)
     (tmp_path / ".claude" / "agents").mkdir(parents=True)
     (tmp_path / "CLAUDE.md").write_text("# Test Project\n")

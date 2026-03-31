@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read Forge settings and output current configuration as JSON.
 
-Settings file: <project>/.claude/forge/settings.json
+Settings file: ~/.claude/forge/projects/<hash>/settings.json
 Falls back to defaults if the file doesn't exist or is invalid.
 
 Usage:
@@ -11,6 +11,8 @@ Usage:
 import json
 import sys
 from pathlib import Path
+
+from project_identity import resolve_user_file
 
 DEFAULTS = {
     "nudge_level": "balanced",
@@ -45,7 +47,7 @@ def find_project_root() -> Path:
 
 
 def load_settings(project_root: Path) -> dict:
-    settings_path = project_root / ".claude" / "forge" / "settings.json"
+    settings_path = resolve_user_file(project_root, "settings.json")
     settings = dict(DEFAULTS)
     if settings_path.is_file():
         try:
@@ -87,7 +89,7 @@ def main():
             name: {"description": desc}
             for name, desc in DEPTH_DESCRIPTIONS.items()
         },
-        "settings_path": str(root / ".claude" / "forge" / "settings.json"),
+        "settings_path": str(resolve_user_file(root, "settings.json")),
     }
 
     json.dump(output, sys.stdout, indent=2)
