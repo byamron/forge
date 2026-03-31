@@ -16,6 +16,7 @@ Output: JSON object with "proposals" array and "context_health" summary.
 """
 
 import argparse
+import fnmatch
 import json
 import re
 import sys
@@ -32,6 +33,11 @@ THRESHOLDS = {
     "hook": {"min_occurrences": 5, "min_sessions": 3},
     "rule": {"min_occurrences": 3, "min_sessions": 2},
     "claude_md_entry": {"min_occurrences": 3, "min_sessions": 2},
+}
+
+STALENESS_THRESHOLDS = {
+    "min_sessions_for_analysis": 10,
+    "stale_session_count": 15,   # not seen in last N sessions → stale
 }
 
 
@@ -105,6 +111,12 @@ def _score_impact(proposal_type: str, occurrences: int = 0,
 
     if proposal_type in ("rule", "claude_md_entry"):
         if occurrences >= 5 or sessions >= 4:
+            return "high"
+        return "medium"
+
+    if proposal_type == "stale_artifact":
+        # Never referenced → high; referenced in very few → medium
+        if occurrences == 0:
             return "high"
         return "medium"
 
@@ -503,14 +515,179 @@ def _build_from_memory(memory: Dict) -> List[Dict]:
 
 
 # ---------------------------------------------------------------------------
+# Staleness detection — cross-reference artifacts against session data
+# ---------------------------------------------------------------------------
+
+def _artifact_keywords(artifact: Dict) -> List[str]:
+    """Extract discriminating keywords from an artifact's content.
+
+    Returns the top content tokens (lowercased, 4+ chars, excluding
+    generic terms) that can be used for fuzzy session matching.
+    """
+    content = artifact.get("content", "")
+    name = artifact.get("name", "")
+    text = name + " " + content
+    # Simple frequency-based keyword extraction (no TF-IDF needed here)
+    words = re.findall(r"[a-zA-Z]{4,}", text)
+    freq = {}  # type: Dict[str, int]
+    generic = {
+        "that", "this", "with", "from", "have", "will", "when", "your",
+        "must", "should", "never", "always", "claude", "code", "file",
+        "files", "project", "rule", "rules", "skill", "agent", "hook",
+        "path", "paths", "using", "used", "make", "sure", "also",
+    }
+    for w in words:
+        low = w.lower()
+        if low not in generic:
+            freq[low] = freq.get(low, 0) + 1
+    sorted_terms = sorted(freq, key=lambda t: freq[t], reverse=True)
+    return sorted_terms[:7]
+
+
+def _is_artifact_referenced(
+    artifact: Dict,
+    session_text_index: Dict[str, List[str]],
+    session_tool_paths: Dict[str, List[str]],
+) -> int:
+    """Count how many sessions reference an artifact.
+
+    An artifact is "referenced" in a session if:
+    1. Its name appears in the session's token set, OR
+    2. For skills: /name appears as a slash-command token, OR
+    3. At least 3 of its top 5 content keywords co-occur in a session, OR
+    4. For rules with paths frontmatter: session tool paths match the glob.
+    """
+    name = artifact.get("name", "").lower()
+    artifact_format = artifact.get("format", "")
+    keywords = _artifact_keywords(artifact)[:5]
+    paths_fm = artifact.get("paths_frontmatter", [])
+    keyword_threshold = min(3, max(1, len(keywords)))
+
+    sessions_matched = 0
+
+    for session_id, tokens in session_text_index.items():
+        token_set = set(tokens)
+
+        # Check 1: name match
+        if name and name in token_set:
+            sessions_matched += 1
+            continue
+
+        # Check 2: slash-command match for skills
+        if artifact_format == "skill" and name:
+            # Slash commands appear as /<name> in raw text tokens
+            if ("/" + name) in token_set or name.replace("-", "") in token_set:
+                sessions_matched += 1
+                continue
+
+        # Check 3: content keyword co-occurrence
+        if keywords:
+            matched_keywords = sum(1 for kw in keywords if kw in token_set)
+            if matched_keywords >= keyword_threshold:
+                sessions_matched += 1
+                continue
+
+        # Check 4: path-based matching for scoped rules
+        if paths_fm:
+            tool_paths = session_tool_paths.get(session_id, [])
+            path_matched = False
+            for tp in tool_paths:
+                # Use just the relative portion after common prefixes
+                basename = tp.rsplit("/", 1)[-1] if "/" in tp else tp
+                for pattern in paths_fm:
+                    if fnmatch.fnmatch(basename, pattern) or fnmatch.fnmatch(tp, pattern):
+                        path_matched = True
+                        break
+                if path_matched:
+                    break
+            if path_matched:
+                sessions_matched += 1
+                continue
+
+    return sessions_matched
+
+
+def _build_from_staleness(config: Dict, transcripts: Dict) -> List[Dict]:
+    """Build proposals for stale artifacts not referenced in recent sessions."""
+    sessions_analyzed = transcripts.get("sessions_analyzed", 0)
+    min_sessions = STALENESS_THRESHOLDS["min_sessions_for_analysis"]
+    stale_threshold = STALENESS_THRESHOLDS["stale_session_count"]
+
+    if sessions_analyzed < min_sessions:
+        return []
+
+    session_text_index = transcripts.get("session_text_index", {})
+    session_tool_paths = transcripts.get("session_tool_paths", {})
+
+    if not session_text_index:
+        return []
+
+    # Cap stale threshold to actual session count
+    effective_threshold = min(stale_threshold, sessions_analyzed)
+
+    # Gather all artifacts to check
+    artifacts = []  # type: List[Dict]
+    for rule in config.get("existing_rules", []):
+        artifacts.append(rule)
+    for skill in config.get("existing_skills", []):
+        artifacts.append(skill)
+    for agent in config.get("existing_agents", []):
+        artifacts.append(agent)
+
+    proposals = []
+    for artifact in artifacts:
+        sessions_ref = _is_artifact_referenced(
+            artifact, session_text_index, session_tool_paths,
+        )
+        unreferenced_sessions = sessions_analyzed - sessions_ref
+
+        if unreferenced_sessions < effective_threshold:
+            continue
+
+        art_type = artifact.get("format", "unknown")
+        art_name = artifact.get("name", "unknown")
+        art_path = artifact.get("path", "")
+
+        proposals.append({
+            "id": "stale-{}-{}".format(art_type, art_name),
+            "type": "stale_artifact",
+            "impact": _score_impact("stale_artifact", occurrences=sessions_ref),
+            "confidence": "high" if sessions_ref == 0 else "medium",
+            "description": (
+                "{} '{}' not referenced in last {} sessions — "
+                "consider archiving or removing".format(
+                    art_type.capitalize(), art_name, sessions_analyzed,
+                )
+            ),
+            "evidence_summary": (
+                "{} references in {} sessions analyzed".format(
+                    sessions_ref, sessions_analyzed,
+                )
+            ),
+            "suggested_content": "",
+            "suggested_path": art_path,
+            "status": "pending",
+        })
+
+    return proposals
+
+
+# ---------------------------------------------------------------------------
 # Context health summary
 # ---------------------------------------------------------------------------
 
-def _build_context_health(config: Dict) -> Dict[str, Any]:
-    """Build a compact context health summary from config audit."""
+def _build_context_health(config: Dict,
+                          stale_proposals: Optional[List[Dict]] = None) -> Dict[str, Any]:
+    """Build a compact context health summary from config audit.
+
+    When *stale_proposals* is provided (pre-computed by _build_from_staleness),
+    includes stale artifact counts in the health summary without recomputing.
+    """
     budget = config.get("context_budget", {})
     tech = config.get("tech_stack", {})
     placement = config.get("placement_issues", [])
+
+    stale = stale_proposals or []
 
     health = {
         "claude_md_lines": budget.get("claude_md_lines", 0),
@@ -522,7 +699,16 @@ def _build_context_health(config: Dict) -> Dict[str, Any]:
         "over_budget": budget.get("estimated_tier1_lines", 0) > 200,
         "tech_stack": tech.get("detected", []),
         "placement_note_count": len(placement),
-    }
+        "stale_artifacts_count": len(stale),
+        "stale_artifacts": [
+            {
+                "type": p.get("id", "").split("-")[1] if "-" in p.get("id", "") else "unknown",
+                "name": p.get("id", "").split("-", 2)[-1] if "-" in p.get("id", "") else "",
+                "evidence": p.get("evidence_summary", ""),
+            }
+            for p in stale
+        ],
+    }  # type: Dict[str, Any]
 
     # Build a one-liner
     parts = []
@@ -551,6 +737,11 @@ def _build_context_health(config: Dict) -> Dict[str, Any]:
         )
     if demotion_count > 0:
         parts.append(f"{demotion_count} demotion candidates")
+
+    if health["stale_artifacts_count"] > 0:
+        parts.append(
+            f'{health["stale_artifacts_count"]} stale artifacts'
+        )
 
     health["summary"] = ". ".join(parts) + "."
     return health
@@ -587,6 +778,8 @@ def build_proposals(config: Dict, transcripts: Dict, memory: Dict,
         _build_from_corrections(transcripts, existing_skills)
     )
     all_proposals.extend(_build_from_memory(memory))
+    stale_proposals = _build_from_staleness(config, transcripts)
+    all_proposals.extend(stale_proposals)
 
     # Filter dismissed
     filtered = []
@@ -614,8 +807,8 @@ def build_proposals(config: Dict, transcripts: Dict, memory: Dict,
     impact_order = {"high": 0, "medium": 1, "low": 2}
     final.sort(key=lambda p: impact_order.get(p.get("impact", "medium"), 1))
 
-    # Build context health
-    context_health = _build_context_health(config)
+    # Build context health (pass pre-computed stale proposals to avoid recomputing)
+    context_health = _build_context_health(config, stale_proposals)
 
     return {
         "proposals": final,
