@@ -119,6 +119,107 @@ def _parse_skill(skill_path: Path) -> Optional[Dict[str, Any]]:
     }
 
 
+def _parse_rule(rule_path: Path) -> Optional[Dict[str, Any]]:
+    """Parse a rule .md file, returning name, content, path, and paths frontmatter.
+
+    Extracts the ``paths`` YAML frontmatter list for scoped-rule matching.
+    """
+    try:
+        text = rule_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+    lines = text.splitlines()
+    name = rule_path.stem  # e.g., "security" from "security.md"
+    paths_frontmatter = []  # type: List[str]
+    body_start = 0
+
+    # Try to extract frontmatter
+    if lines and lines[0].strip() == "---":
+        end = -1
+        for i, line in enumerate(lines[1:], 1):
+            if line.strip() == "---":
+                end = i
+                break
+        if end > 0:
+            body_start = end + 1
+            in_paths = False
+            for line in lines[1:end]:
+                stripped = line.strip()
+                if stripped.startswith("paths:"):
+                    in_paths = True
+                    continue
+                if in_paths:
+                    if stripped.startswith("- "):
+                        val = stripped[2:].strip().strip("'\"")
+                        if val:
+                            paths_frontmatter.append(val)
+                    elif stripped and not stripped.startswith("-"):
+                        in_paths = False
+
+    body = "\n".join(lines[body_start:]).strip()
+
+    return {
+        "name": name,
+        "content": body,
+        "path": str(rule_path),
+        "format": "rule",
+        "paths_frontmatter": paths_frontmatter,
+    }
+
+
+def _parse_claude_md_sections(root: Path) -> List[Dict[str, Any]]:
+    """Parse CLAUDE.md into sections by ## headings.
+
+    Returns a list of sections with heading, content, and line range.
+    Useful for staleness detection on individual CLAUDE.md sections.
+    """
+    claude_md_path = None
+    for candidate in [root / "CLAUDE.md", root / ".claude" / "CLAUDE.md"]:
+        if candidate.is_file():
+            claude_md_path = candidate
+            break
+    if claude_md_path is None:
+        return []
+
+    lines = _read_lines(claude_md_path)
+    sections = []  # type: List[Dict[str, Any]]
+    current_heading = ""
+    current_lines = []  # type: List[str]
+    current_start = 1
+
+    for i, line in enumerate(lines, start=1):
+        if line.startswith("## "):
+            # Save previous section if it has content
+            if current_heading and current_lines:
+                body = "\n".join(current_lines).strip()
+                if body:
+                    sections.append({
+                        "heading": current_heading,
+                        "content": body,
+                        "line_start": current_start,
+                        "line_end": i - 1,
+                    })
+            current_heading = line[3:].strip()
+            current_lines = []
+            current_start = i
+        elif current_heading:
+            current_lines.append(line)
+
+    # Last section
+    if current_heading and current_lines:
+        body = "\n".join(current_lines).strip()
+        if body:
+            sections.append({
+                "heading": current_heading,
+                "content": body,
+                "line_start": current_start,
+                "line_end": len(lines),
+            })
+
+    return sections
+
+
 def _parse_legacy_command(cmd_path: Path) -> Optional[Dict[str, Any]]:
     """Parse a legacy .claude/commands/*.md file.
 
@@ -191,6 +292,13 @@ def compute_context_budget(root: Path):
     # Rules
     rules_dir = root / ".claude" / "rules"
     budget["rules_count"], budget["rules_total_lines"] = _count_md_files(rules_dir)
+    rules_inventory: List[Dict[str, Any]] = []
+    if rules_dir.is_dir():
+        for f in sorted(rules_dir.rglob("*.md")):
+            if f.is_file():
+                info = _parse_rule(f)
+                if info:
+                    rules_inventory.append(info)
 
     # Skills (SKILL.md files) and legacy commands (.claude/commands/*.md)
     skills_dir = root / ".claude" / "skills"
@@ -260,7 +368,7 @@ def compute_context_budget(root: Path):
         budget["claude_md_lines"] + budget["claude_local_md_lines"]
     )
 
-    return budget, skills_inventory, agents_inventory, hooks_inventory
+    return budget, skills_inventory, agents_inventory, hooks_inventory, rules_inventory
 
 
 # ---------------------------------------------------------------------------
@@ -758,12 +866,13 @@ def main():
         sys.exit(1)
 
     try:
-        budget, skills_inventory, agents_inventory, hooks_inventory = (
+        budget, skills_inventory, agents_inventory, hooks_inventory, rules_inventory = (
             compute_context_budget(root)
         )
         tech_stack = detect_tech_stack(root)
         gaps = find_gaps(root, tech_stack)
         placement_issues = find_placement_issues(root)
+        claude_md_sections = _parse_claude_md_sections(root)
         demotion_candidates = find_demotion_candidates(
             root, placement_issues, budget
         )
@@ -775,6 +884,8 @@ def main():
             "existing_skills": skills_inventory,
             "existing_agents": agents_inventory,
             "existing_hooks": hooks_inventory,
+            "existing_rules": rules_inventory,
+            "claude_md_sections": claude_md_sections,
             "tech_stack": tech_stack,
             "gaps": gaps,
             "placement_issues": placement_issues,

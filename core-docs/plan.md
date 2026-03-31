@@ -2,7 +2,7 @@
 
 ## Current Focus
 
-Parallel tracks: (1) real-world testing of Forge v0.2.3 via private marketplace install, and (2) continuing development on remaining Phase 2 + Phase 3 features.
+Parallel tracks: (1) real-world testing of Forge v0.2.6 via private marketplace install, and (2) continuing development on remaining Phase 2 + Phase 3 features.
 
 ## Handoff Notes
 
@@ -67,14 +67,15 @@ Implemented:
 - 30 new tests covering domain classification, grouping, proposal generation, and budget rebalancing
 
 ### 3. Stale config detection (Task 3.4)
-**Status:** Not started
+**Status:** Done (v0.2.6)
 **Goal:** Detect rules, skills, and CLAUDE.md entries that haven't been relevant in recent sessions.
 
-Scope:
-- Cross-reference existing artifacts against recent session transcripts
-- Flag artifacts that were never triggered/referenced in the last N sessions
-- Suggest archiving or removing stale content
-- Report in `/forge` health summary
+Shipped:
+- Cross-references existing artifacts against recent session transcripts via session text index + tool paths
+- Flags artifacts not referenced in 15+ sessions (name match, keyword co-occurrence, slash-command match, glob-based path matching)
+- Proposes archiving/removing stale content as `stale_artifact` proposals
+- Reports stale artifact count in `/forge` health summary table
+- Requires 10+ sessions minimum before running staleness analysis
 
 ### 4. Reference doc extraction (Task 2.4)
 **Status:** Partial (memory→reference works)
@@ -146,7 +147,7 @@ All 11 tasks shipped. See `core-docs/history.md` for details.
 | 3.1 Background analysis on SessionStart | ❌ Not started | |
 | 3.2 Between-task ambient nudge | ➡️ Replaced | Session-start nudge system via settings levels |
 | 3.3 Session-start passive briefing | ✅ Done | Nudge levels: quiet/balanced/eager |
-| 3.4 Stale config detection | ❌ Not started | Detect unused rules/skills/CLAUDE.md entries |
+| 3.4 Stale config detection | ✅ Done | Cross-references artifacts against session data; 4 matching strategies |
 | 3.5 Artifact effectiveness tracking | ❌ Not started | Track if corrections stop after artifact deployed |
 
 ### Phase 4: Advanced (v1.0) — Not started

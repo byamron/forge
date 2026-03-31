@@ -1479,6 +1479,32 @@ def main():
     all_pairs = build_conversation_pairs(sessions)
     output["conversation_pairs_sample"] = _sample_pairs(all_pairs)
 
+    # Build session text index and tool paths for staleness detection.
+    # session_text_index: {session_id: [unique tokens]} — compact bag-of-words
+    # session_tool_paths: {session_id: [file paths touched by tools]}
+    session_text_index = {}  # type: Dict[str, List[str]]
+    session_tool_paths = {}  # type: Dict[str, List[str]]
+    for session_id, messages in sessions.items():
+        tokens = set()  # type: set
+        paths = set()  # type: set
+        for msg in messages:
+            text = msg.get("text", "")
+            if text:
+                tokens.update(tokenize(text))
+                # Also add raw lowercased words for name matching
+                # (tokenize strips stopwords, but artifact names may overlap)
+                for word in re.findall(r"[a-zA-Z][a-zA-Z0-9_-]*", text):
+                    tokens.add(word.lower())
+            for tool in msg.get("tool_uses", []):
+                for fp in _extract_file_paths([tool]):
+                    if fp:
+                        paths.add(fp)
+        session_text_index[session_id] = sorted(tokens)
+        session_tool_paths[session_id] = sorted(paths)
+
+    output["session_text_index"] = session_text_index
+    output["session_tool_paths"] = session_tool_paths
+
     json.dump(output, sys.stdout, indent=2)
     sys.stdout.write("\n")
 
