@@ -37,6 +37,33 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Stale config detection (Task 3.4)
+**Date:** 2026-03-30
+**Branch:** review-roadmap-priorities
+**Commit:** [pending]
+
+**What was done:**
+Added stale artifact detection to the Forge analysis pipeline. The system cross-references existing rules, skills, and agents against recent session transcripts and flags artifacts that haven't been referenced in 15+ sessions. Stale artifacts appear as proposals in `/forge` and as a count in the health summary table.
+
+**Why:**
+Over time, projects accumulate rules, skills, and CLAUDE.md entries that were once relevant but no longer match the team's workflow. These stale artifacts waste context budget and can mislead Claude with outdated guidance. Detecting and surfacing them completes the lifecycle management story — Forge can now both create and clean up artifacts.
+
+**Design decisions:**
+- Staleness logic lives in `build-proposals.py` (not a new script) because it needs data from both config and transcript analyses, and `build-proposals.py` already cross-references both. Avoids a new cache key, fingerprint function, and orchestration complexity.
+- Four reference-matching strategies: (1) name match in session tokens, (2) slash-command match for skills, (3) content keyword co-occurrence (3-of-5 top terms), (4) glob-based path matching for scoped rules. This avoids both false positives (name-only would miss indirect references) and false negatives (keywords-only would miss direct invocations).
+- Minimum 10 sessions required before staleness analysis runs, preventing premature alerts on new or low-usage projects.
+
+**Technical decisions:**
+- `analyze-transcripts.py` now emits `session_text_index` (per-session bag of tokens) and `session_tool_paths` (per-session file paths from tool uses). These are compact indexes that enable efficient cross-referencing in `build-proposals.py` without re-reading raw transcripts.
+- `analyze-config.py` now emits `existing_rules` (full rule inventory with paths frontmatter) and `claude_md_sections` (parsed by ## heading). These were previously only counted, not inventoried.
+- `_artifact_keywords()` uses simple frequency-based keyword extraction (no TF-IDF needed at proposal time since the corpus is small). Generic infrastructure terms are excluded.
+- `fnmatch` used for path glob matching since rules use shell-style patterns.
+
+**Tradeoffs discussed:**
+- Standalone script vs. in `build-proposals.py`: A new `analyze-staleness.py` would have cleaner separation but required a new cache entry, fingerprint function, and would duplicate config+transcript loading. Since `build-proposals.py` already orchestrates both data sources, putting it there was simpler.
+- Content keyword matching vs. name-only matching: Name-only would miss rules like `security.md` when the discussion is about "never commit secrets." Content keywords catch these but risk false positives. Requiring 3-of-5 top terms to co-occur balances precision and recall.
+- CLAUDE.md section staleness deferred: Sections don't have clear identifiers like rules/skills do, making matching unreliable. Initial implementation focuses on rules, skills, and agents which have distinct names and paths.
+
 ### Infrastructure migration to standardized template
 **Date:** 2026-03-28
 **Branch:** optimize-infra

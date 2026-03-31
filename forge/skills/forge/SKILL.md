@@ -82,9 +82,10 @@ Using the `context_health` from Step 1, show a brief health table:
 | Skills/Commands  | 2     | ✓      |
 | Hooks            | 0     | ⚠      |
 | Agents           | 0     | ✓      |
+| Stale artifacts  | 0     | ✓      |
 ```
 
-Use ⚠ for any metric with gaps or issues. If `context_health.over_budget` is true, mark CLAUDE.md with ⚠.
+Use ⚠ for any metric with gaps or issues. If `context_health.over_budget` is true, mark CLAUDE.md with ⚠. If `context_health.stale_artifacts_count` > 0, mark Stale artifacts with ⚠.
 
 ### Deep mode: wait for background analysis
 

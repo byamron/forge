@@ -124,3 +124,194 @@ class TestSimilarity:
     def test_partial_overlap(self):
         sim = bp._similarity("deploy to staging environment", "deploy staging server")
         assert 0.0 < sim < 1.0
+
+
+# ---------------------------------------------------------------------------
+# Staleness detection tests
+# ---------------------------------------------------------------------------
+
+def _make_session_index(num_sessions, referenced_names=None):
+    """Build a fake session_text_index with N sessions.
+
+    If referenced_names is provided, every session includes those tokens.
+    Otherwise sessions contain only generic tokens.
+    """
+    index = {}
+    for i in range(num_sessions):
+        tokens = ["generic", "coding", "session", "work"]
+        if referenced_names:
+            tokens.extend(referenced_names)
+        index["session-{}".format(i)] = tokens
+    return index
+
+
+class TestStalenessDetection:
+    """Verify stale artifact detection in build_proposals."""
+
+    def _base_config(self, rules=None, skills=None):
+        return {
+            "existing_skills": skills or [],
+            "existing_agents": [],
+            "existing_hooks": [],
+            "existing_rules": rules or [],
+            "context_budget": {},
+            "tech_stack": {},
+        }
+
+    def test_stale_rule_detected(self):
+        """A rule with zero references across 15 sessions is flagged."""
+        rules = [{
+            "name": "old-linting",
+            "content": "Always run the xyzzy linter before committing changes",
+            "path": ".claude/rules/old-linting.md",
+            "format": "rule",
+            "paths_frontmatter": [],
+        }]
+        transcripts = {
+            "sessions_analyzed": 15,
+            "session_text_index": _make_session_index(15),
+            "session_tool_paths": {},
+            "candidates": {},
+        }
+        config = self._base_config(rules=rules)
+        result = bp.build_proposals(config, transcripts, {}, [], [])
+        stale = [p for p in result["proposals"] if p["type"] == "stale_artifact"]
+        assert len(stale) == 1
+        assert "old-linting" in stale[0]["description"]
+        assert stale[0]["impact"] == "high"
+
+    def test_referenced_rule_not_stale(self):
+        """A rule referenced in sessions is NOT flagged as stale."""
+        rules = [{
+            "name": "security",
+            "content": "Never commit secrets or credentials",
+            "path": ".claude/rules/security.md",
+            "format": "rule",
+            "paths_frontmatter": [],
+        }]
+        # Every session mentions "security"
+        transcripts = {
+            "sessions_analyzed": 15,
+            "session_text_index": _make_session_index(15, ["security"]),
+            "session_tool_paths": {},
+            "candidates": {},
+        }
+        config = self._base_config(rules=rules)
+        result = bp.build_proposals(config, transcripts, {}, [], [])
+        stale = [p for p in result["proposals"] if p["type"] == "stale_artifact"]
+        assert len(stale) == 0
+
+    def test_insufficient_sessions_skips_staleness(self):
+        """With fewer than 10 sessions, no staleness analysis runs."""
+        rules = [{
+            "name": "old-rule",
+            "content": "Obsolete guidance about removed feature",
+            "path": ".claude/rules/old-rule.md",
+            "format": "rule",
+            "paths_frontmatter": [],
+        }]
+        transcripts = {
+            "sessions_analyzed": 5,
+            "session_text_index": _make_session_index(5),
+            "session_tool_paths": {},
+            "candidates": {},
+        }
+        config = self._base_config(rules=rules)
+        result = bp.build_proposals(config, transcripts, {}, [], [])
+        stale = [p for p in result["proposals"] if p["type"] == "stale_artifact"]
+        assert len(stale) == 0
+
+    def test_stale_skill_detected(self):
+        """A skill not referenced in recent sessions is flagged."""
+        skills = [{
+            "name": "old-deploy",
+            "description": "Deploy to legacy staging environment",
+            "content": "Steps for deploying to the xyzzy legacy staging server",
+            "path": ".claude/skills/old-deploy/SKILL.md",
+            "format": "skill",
+        }]
+        transcripts = {
+            "sessions_analyzed": 15,
+            "session_text_index": _make_session_index(15),
+            "session_tool_paths": {},
+            "candidates": {},
+        }
+        config = self._base_config(skills=skills)
+        result = bp.build_proposals(config, transcripts, {}, [], [])
+        stale = [p for p in result["proposals"] if p["type"] == "stale_artifact"]
+        assert len(stale) == 1
+        assert "old-deploy" in stale[0]["description"]
+
+    def test_stale_artifact_impact_scoring(self):
+        """Zero references → high impact; some references → medium."""
+        assert bp._score_impact("stale_artifact", occurrences=0) == "high"
+        assert bp._score_impact("stale_artifact", occurrences=2) == "medium"
+
+    def test_keyword_match_prevents_stale(self):
+        """An artifact whose content keywords appear in sessions is not stale."""
+        rules = [{
+            "name": "formatting",
+            "content": "Always run prettier before committing typescript files",
+            "path": ".claude/rules/formatting.md",
+            "format": "rule",
+            "paths_frontmatter": [],
+        }]
+        # Sessions mention content keywords but not the rule name
+        transcripts = {
+            "sessions_analyzed": 15,
+            "session_text_index": _make_session_index(
+                15, ["prettier", "committing", "typescript"]
+            ),
+            "session_tool_paths": {},
+            "candidates": {},
+        }
+        config = self._base_config(rules=rules)
+        result = bp.build_proposals(config, transcripts, {}, [], [])
+        stale = [p for p in result["proposals"] if p["type"] == "stale_artifact"]
+        assert len(stale) == 0
+
+    def test_path_match_prevents_stale(self):
+        """A rule with paths frontmatter matching tool paths is not stale."""
+        rules = [{
+            "name": "react-rules",
+            "content": "Component naming conventions for React",
+            "path": ".claude/rules/react-rules.md",
+            "format": "rule",
+            "paths_frontmatter": ["*.tsx"],
+        }]
+        tool_paths = {
+            "session-{}".format(i): ["/src/App.tsx"]
+            for i in range(15)
+        }
+        transcripts = {
+            "sessions_analyzed": 15,
+            "session_text_index": _make_session_index(15),
+            "session_tool_paths": tool_paths,
+            "candidates": {},
+        }
+        config = self._base_config(rules=rules)
+        result = bp.build_proposals(config, transcripts, {}, [], [])
+        stale = [p for p in result["proposals"] if p["type"] == "stale_artifact"]
+        assert len(stale) == 0
+
+    def test_context_health_includes_staleness(self):
+        """Context health summary includes stale artifact count."""
+        rules = [{
+            "name": "dead-rule",
+            "content": "Obsolete xyzzyfoo guidance nobody uses anymore",
+            "path": ".claude/rules/dead-rule.md",
+            "format": "rule",
+            "paths_frontmatter": [],
+        }]
+        transcripts = {
+            "sessions_analyzed": 15,
+            "session_text_index": _make_session_index(15),
+            "session_tool_paths": {},
+            "candidates": {},
+        }
+        config = self._base_config(rules=rules)
+        # Pre-compute stale proposals (same as build_proposals does internally)
+        stale = bp._build_from_staleness(config, transcripts)
+        health = bp._build_context_health(config, stale)
+        assert health["stale_artifacts_count"] == 1
+        assert "stale" in health["summary"].lower()
