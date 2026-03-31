@@ -1094,8 +1094,11 @@ def find_repeated_prompts(sessions: dict) -> list:
                 used.add(j)
 
         if len(group) >= 3:
+            # Pick shortest message as representative canonical text
+            canonical = min(group, key=lambda x: len(x[1]))[1]
             groups.append({
                 "pattern": f"Similar opening prompt in {len(group)} sessions",
+                "canonical_text": canonical,
                 "occurrences": len(group),
                 "sessions": [s for s, _ in group],
                 "evidence": [

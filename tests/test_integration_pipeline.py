@@ -264,6 +264,33 @@ class TestReactTsProfile:
         assert "hook" in types, f"Expected hook proposals, got: {types}"
         assert "demotion" in types, f"Expected demotion proposals, got: {types}"
 
+    def test_hook_proposals_have_tool_names(self, react_ts_project):
+        """Hook proposals should name the actual tool, not 'unknown'."""
+        result = run_full_pipeline(react_ts_project)
+        proposals = result["proposals"]["proposals"]
+        hook_proposals = [p for p in proposals if p["type"] == "hook"]
+        for p in hook_proposals:
+            assert "unknown" not in p["id"], f"Hook proposal has 'unknown' in id: {p['id']}"
+            assert "unknown" not in p["description"].lower(), (
+                f"Hook proposal has 'unknown' in description: {p['description']}"
+            )
+
+    def test_hook_content_matches_tool(self, react_ts_project):
+        """Hook content should use the correct command for each tool."""
+        result = run_full_pipeline(react_ts_project)
+        proposals = result["proposals"]["proposals"]
+        hook_proposals = [p for p in proposals if p["type"] == "hook"]
+        for p in hook_proposals:
+            content = p.get("suggested_content", "")
+            if "prettier" in p["id"]:
+                assert "prettier" in content, (
+                    f"Prettier hook should contain prettier command: {content}"
+                )
+            elif "eslint" in p["id"]:
+                assert "eslint" in content, (
+                    f"Eslint hook should contain eslint command: {content}"
+                )
+
 
 # ===================================================================
 # Profile: python-corrections — Transcript analysis surface
@@ -326,6 +353,16 @@ class TestPythonCorrectionsProfile:
         assert any(t in ("rule", "skill", "hook") for t in types), (
             f"Expected transcript-derived proposals, got types: {types}"
         )
+
+    def test_repeated_prompt_skill_name_quality(self, python_corrections_project):
+        """Repeated prompt skills should derive names from user text, not summary."""
+        result = run_full_pipeline(python_corrections_project)
+        proposals = result["proposals"]["proposals"]
+        skill_proposals = [p for p in proposals if p["type"] == "skill"]
+        for p in skill_proposals:
+            assert "similar-opening-prompt" not in p["id"], (
+                f"Skill name derived from summary pattern, not user text: {p['id']}"
+            )
 
 
 # ===================================================================
@@ -441,6 +478,16 @@ class TestFullstackMatureProfile:
         # Memory promotions should still work even though other signals are filtered
         assert len(notes) >= 1, "Expected at least 1 memory promotion"
 
+    def test_proposals_no_unknown_names(self, fullstack_mature_project):
+        """No proposal should have 'unknown' in its id or description."""
+        result = run_full_pipeline(fullstack_mature_project)
+        proposals = result["proposals"]["proposals"]
+        for p in proposals:
+            assert "unknown" not in p["id"], f"Proposal has 'unknown' in id: {p['id']}"
+            assert "Promote memory note to" not in p["description"] or "unknown" not in p["description"], (
+                f"Memory proposal has 'unknown' in description: {p['description']}"
+            )
+
 
 # ===================================================================
 # Profile: swift-ios — Memory-only path
@@ -498,6 +545,37 @@ class TestSwiftIosProfile:
         assert len(config_proposals) == 0, (
             f"Expected no config proposals, got: {config_proposals}"
         )
+
+    def test_memory_proposals_have_names(self, swift_ios_project):
+        """Memory-promoted proposals should have meaningful names, not 'unknown'."""
+        result = run_full_pipeline(swift_ios_project)
+        proposals = result["proposals"]["proposals"]
+        for p in proposals:
+            assert "unknown" not in p["id"], f"Proposal has 'unknown' in id: {p['id']}"
+            assert "unknown" not in p["description"], (
+                f"Proposal has 'unknown' in description: {p['description']}"
+            )
+
+    def test_memory_proposals_have_correct_paths(self, swift_ios_project):
+        """reference_doc proposals should target .claude/references/, not .claude/rules/."""
+        result = run_full_pipeline(swift_ios_project)
+        proposals = result["proposals"]["proposals"]
+        for p in proposals:
+            if p["type"] == "reference_doc":
+                assert p["suggested_path"].startswith(".claude/references/"), (
+                    f"reference_doc proposal has wrong path: {p['suggested_path']}"
+                )
+            elif p["type"] == "rule":
+                assert p["suggested_path"].startswith(".claude/rules/"), (
+                    f"rule proposal has wrong path: {p['suggested_path']}"
+                )
+
+    def test_memory_proposals_have_unique_ids(self, swift_ios_project):
+        """Each memory-promoted proposal should have a unique ID."""
+        result = run_full_pipeline(swift_ios_project)
+        proposals = result["proposals"]["proposals"]
+        ids = [p["id"] for p in proposals]
+        assert len(ids) == len(set(ids)), f"Duplicate proposal IDs: {ids}"
 
 
 # ===================================================================
