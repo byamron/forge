@@ -19,6 +19,18 @@ Original spec (`core-docs/spec.md`) and roadmap (`core-docs/roadmap.md`) are che
 
 ## Active Work Items
 
+### 0. User-level data storage migration
+**Status:** Complete
+**Goal:** Eliminate `.claude/forge/` from the project directory entirely. All Forge runtime data (decisions, caches, session log) stored in `~/.claude/forge/projects/<hash>/`, shared across worktrees, invisible to git.
+
+Implemented:
+- `project_identity.py` — shared module for project hash (git remote URL → SHA-256) and user data dir resolution
+- All scripts updated: `finalize-proposals.py`, `cache-manager.py`, `read-settings.py`, `write-settings.py`, `check-pending.py`, `log-session.sh`
+- Transparent migrate-on-read from legacy `.claude/forge/` location
+- `project_identity.py` CLI for shell script interop
+- 13 new tests in `test_project_identity.py`, cache manager tests updated
+- Version bumped to 0.2.5
+
 ### 1. Real-world testing via marketplace install
 **Status:** Starting
 **Goal:** Validate the full plugin experience as a marketplace user, not a developer running `--plugin-dir`.
@@ -163,5 +175,7 @@ Full analysis pipeline (config, transcripts, memory), unified `/forge` command, 
 
 ## Backlog
 
-- CI/CD setup (prerequisite: test suite exists ✓)
+- CI/CD setup (prerequisite: test suite exists)
 - Cross-project aggregation (Phase 4, opt-in only)
+- `forge:cleanup` command — detect and remove orphaned `~/.claude/forge/projects/<hash>/` directories for deleted projects
+- Hash collision resilience — bump project hash from 12 to 16 hex chars if user base grows significantly

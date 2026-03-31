@@ -7,7 +7,7 @@ Provides two modes:
   --update: Run stale analysis scripts and write fresh cache files.
             Called by the SessionEnd hook for background caching.
 
-Cache files live in .claude/forge/cache/ and store:
+Cache files live in ~/.claude/forge/projects/<hash>/cache/ and store:
   - The analysis result JSON
   - A fingerprint (mtime+size of all input files) for invalidation
 
@@ -25,6 +25,8 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from project_identity import get_user_data_dir, resolve_user_file
 
 
 # ---------------------------------------------------------------------------
@@ -132,8 +134,8 @@ def fingerprint_transcripts(root: Path) -> str:
     """
     entries = []
 
-    # Unanalyzed sessions log — primary freshness signal
-    log_path = root / ".claude" / "forge" / "unanalyzed-sessions.log"
+    # Unanalyzed sessions log — primary freshness signal (user-level, shared)
+    log_path = get_user_data_dir(root) / "unanalyzed-sessions.log"
     stat = file_stat(log_path)
     if stat:
         entries.append(f"unanalyzed-log:{stat[0]}:{stat[1]}")
@@ -147,8 +149,8 @@ def fingerprint_transcripts(root: Path) -> str:
     if stat:
         entries.append(f"analyzer-stats:{stat[0]}:{stat[1]}")
 
-    # Dismissed proposals (affects filtering)
-    dismissed_path = root / ".claude" / "forge" / "dismissed.json"
+    # Dismissed proposals (affects filtering) — now in user-level dir
+    dismissed_path = resolve_user_file(root, "dismissed.json")
     stat = file_stat(dismissed_path)
     if stat:
         entries.append(f"dismissed:{stat[0]}:{stat[1]}")
@@ -222,7 +224,7 @@ SCRIPT_TIMEOUTS = {
 
 
 def cache_dir(root: Path) -> Path:
-    return root / ".claude" / "forge" / "cache"
+    return get_user_data_dir(root) / "cache"
 
 
 def read_cache(root: Path, script_key: str) -> Optional[Dict[str, Any]]:
@@ -389,8 +391,8 @@ def _build_proposals_from_cache(root: Path,
     else:
         script_path = Path(__file__).parent / "build-proposals.py"
 
-    dismissed_path = root / ".claude" / "forge" / "dismissed.json"
-    pending_path = root / ".claude" / "forge" / "proposals" / "pending.json"
+    dismissed_path = resolve_user_file(root, "dismissed.json")
+    pending_path = resolve_user_file(root, "proposals/pending.json")
 
     cmd = [
         "python3", str(script_path),

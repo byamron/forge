@@ -37,6 +37,38 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### User-decision data moved to user-level storage (SAFETY)
+**Date:** 2026-03-30
+**Branch:** forge-data-git-strategy
+**Commit:** [pending]
+
+**What was done:**
+Moved all Forge runtime data from `.claude/forge/` (per-worktree, gitignored) to `~/.claude/forge/projects/<hash>/` (shared across all worktrees of the same project). This includes dismissed proposals, settings, applied history, pending proposals, analysis caches, and the unanalyzed session log. `.claude/forge/` no longer exists in the project directory — Forge has zero git footprint for runtime data. Added `project_identity.py` module for project hash computation and transparent migrate-on-read from legacy locations. Updated `log-session.sh` to write session log via `project_identity.py` CLI. 13 new tests. Version bumped to 0.2.5.
+
+**Why:**
+Files in `.claude/forge/` are gitignored and per-worktree. This meant dismissed proposals and settings didn't persist across worktrees, causing the same proposals to reappear in different worktrees and settings to be lost. Users noticed Forge files in diffs, creating confusion about whether data was being properly tracked.
+
+**Design decisions:**
+- **Project identity via git remote URL hash** -- SHA-256 of the cleaned remote URL, first 12 hex chars. Two worktrees of the same repo produce the same hash. Fallback to path-based encoding (matching Claude Code's scheme) when no git remote exists.
+- **Everything moves to user-level** -- All runtime data (decisions, caches, session log) moves to `~/.claude/forge/projects/<hash>/`. Caches use fingerprint-based invalidation, so sharing across worktrees is safe — stale fingerprint just triggers a rebuild (<2s). Session log benefits from sharing since sessions in any worktree count toward the nudge threshold.
+- **Transparent migration** -- On first read, `resolve_user_file()` checks the new location, falls back to legacy, and auto-migrates (copy + delete old). No manual migration step needed.
+
+**Technical decisions:**
+- Centralized in a single `project_identity.py` module rather than duplicating hash logic across scripts. All scripts import from it.
+- `resolve_user_file()` handles the full lifecycle: new location check, legacy fallback, migration. Scripts just call it with a relative path.
+- Path traversal rejected via `..` check in `resolve_user_file()`, consistent with existing security patterns.
+
+**Tradeoffs discussed:**
+- **User-level vs. project-level storage**: Project-level (`.claude/forge/`) is simpler but doesn't survive across worktrees. User-level (`~/.claude/forge/projects/`) requires a stable project identity mechanism but solves the cross-worktree problem. User-level won because the whole point is that users shouldn't have to think about this.
+- **Hash vs. full path for project identity**: Hash (12 chars) is clean but opaque for debugging. Full encoded path is human-readable but long. Chose hash because it's stable across worktrees by definition (same remote = same hash), and the opaqueness is acceptable since users never interact with this directory.
+- **Migrate-on-read vs. batch migration script**: Migrate-on-read is gradual and zero-effort for users. A batch script would be more explicit but adds a step. Chose migrate-on-read to maintain the "set and forget" principle.
+
+**Lessons learned:**
+- Gitignored files in `.claude/` create a confusing UX -- they show in diffs but aren't tracked, and they don't propagate between worktrees. Moving everything to user-level eliminates this entire class of confusion. Cache sharing across worktrees is safe because fingerprint validation already handles staleness.
+- Known considerations for future: orphaned data after project deletion (add `forge:cleanup` command eventually), hash collision risk at 12 hex chars is negligible for individual users, path-based fallback (no git remote) breaks if project moves.
+
+---
+
 ### Tier demotion / budget rebalancing (Task 2.5)
 **Date:** 2026-03-29
 **Branch:** next-roadmap-priorities
