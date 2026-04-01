@@ -180,6 +180,10 @@ All 11 tasks shipped. See `core-docs/history.md` for details.
 **Date:** 2026-03-31
 SessionStart hook auto-triggers Phase A analysis when unanalyzed sessions exceed the nudge level threshold. Spawns detached background process, zero LLM token cost. Lock file prevents concurrent runs. 20 new tests (222 total).
 
+### Transcript discovery integration tests
+**Date:** 2026-03-31
+30 integration tests for `find_all_project_session_dirs` covering all 5 discovery strategies, cross-project leakage prevention, subprocess timeout graceful degradation, mtime sorting, dedup, and multi-strategy composition. Total test count: 232, all passing in <0.4s.
+
 ### Proposal builder bug fixes (v0.2.7)
 **Date:** 2026-03-30
 Ran full pipeline on synthetic data, found and fixed 4 bugs: "Auto-unknown" hook names, wrong hook commands for formatters, "unknown" memory proposal names/paths, gibberish repeated-prompt skill names. Added 8 regression tests (202 total).
@@ -198,10 +202,10 @@ Full analysis pipeline (config, transcripts, memory), unified `/forge` command, 
 
 ## Backlog
 
-### Transcript discovery integration tests
-**Priority:** High — `find_all_project_session_dirs` is the most fragile production code path (5 strategies, subprocess calls, path encoding/decoding, worktree resolution) with zero integration test coverage. A regression here means Forge silently analyzes nothing or leaks cross-project data.
-
-See `tests/DISCOVERY_TEST_PLAN.md` for detailed scope and approach.
+### ~~Transcript discovery integration tests~~ ✅
+**Status:** Done
+**Date:** 2026-03-31
+30 integration tests in `tests/test_session_discovery.py` covering all 5 strategies, edge cases, cross-project leakage prevention, and multi-strategy composition. Uses monkeypatch + tmp_path (Option A from `tests/DISCOVERY_TEST_PLAN.md`). Total test count: 232.
 
 ### Scoring system evaluation and tuning
 **Priority:** Medium — the correction classifier and theme clustering work on synthetic data but haven't been validated against real-world transcripts, where corrections are ambiguous and conversations are messy. Need a way to capture ground truth from real `/forge` runs and measure precision/recall systematically.

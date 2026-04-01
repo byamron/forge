@@ -61,6 +61,30 @@ Task 3.1 — users shouldn't have to remember to run `/forge`. After enough sess
 - Could have created a separate wrapper script for the background process, but self-spawning with `--run` is simpler and keeps all logic in one file.
 - Could have atomically removed only the lines that existed before analysis started (to preserve concurrent SessionEnd entries), but truncation is simpler and the edge case is benign — the cache is fresh regardless.
 
+### Transcript discovery integration tests
+**Date:** 2026-03-31
+**Branch:** transcript-discovery-tests
+
+**What was done:**
+Added 30 integration tests for `find_all_project_session_dirs()` in `tests/test_session_discovery.py`. Covers all 5 discovery strategies (exact match, worktree list, forward index, workspace-prefix heuristic, git remote scan), cross-project leakage prevention, subprocess timeout graceful degradation, mtime-based result sorting, deduplication across strategies, malformed repo-index.json handling, and multi-strategy composition. Total test count: 232.
+
+**Why:**
+This function is the most fragile production code path — 5 strategies, subprocess calls to git, path encoding/decoding, and cross-worktree aggregation — with zero integration test coverage. A regression means Forge either silently analyzes nothing (missing worktrees) or leaks data from unrelated projects (security violation).
+
+**Design decisions:**
+- Used monkeypatch + tmp_path (Option A from the test plan) rather than refactoring for dependency injection. The function's clear strategy boundaries made targeted monkeypatching clean without requiring production code changes.
+- Created a `DiscoveryEnv` helper class to encapsulate the fake home dir, encoded project dirs, git remote responses, and worktree output — keeping individual tests focused on a single behavior.
+- Monkeypatched `Path.home()` to redirect `~/.claude/projects/` to a temp dir, and `subprocess.run` to return canned git responses. Real directory structures are created in tmp_path for `_decode_project_dir` path existence checks.
+
+**Technical decisions:**
+- Tests create real directories at tmp_path-based paths so `_decode_project_dir`'s greedy path reconstruction algorithm works naturally without additional mocking.
+- The subprocess mock raises `OSError` for non-git commands to catch unintended subprocess usage in tests.
+- Strategy 5 performance guard test (`test_scan_skipped_when_enough_matches`) verifies the function's optimization: the expensive per-directory git remote scan is skipped when strategies 1-4 already found 2+ matches.
+
+**Tradeoffs discussed:**
+- Option A (monkeypatch) vs Option B (dependency injection refactor): chose A because the production code is stable and well-structured; refactoring it purely for testability would add complexity with no user-facing benefit.
+- Considered testing `_decode_project_dir` with synthetic paths, but using real tmp_path directories exercises the greedy path reconstruction algorithm end-to-end, which is more valuable.
+
 ### Fix proposal builder bugs (v0.2.7)
 **Date:** 2026-03-30
 **Branch:** test-forge-on-synthetic
