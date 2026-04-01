@@ -110,13 +110,15 @@ Scope:
 - Replace original with a one-line pointer to the reference
 
 ### 7. Background analysis on SessionStart (Task 3.1)
-**Status:** Not started
+**Status:** Done (v0.2.8)
 **Goal:** Auto-trigger analysis when enough unanalyzed sessions accumulate.
 
-Scope:
-- SessionStart hook checks unanalyzed session count against threshold
-- Spawns background script-only analysis (no LLM tokens)
-- Must not block session start or noticeably impact quota
+Shipped:
+- SessionStart hook with two commands: `check-pending.py` (nudge) + `background-analyze.py` (trigger)
+- `background-analyze.py` checks nudge level thresholds, spawns `cache-manager.py --update` as detached background process
+- Lock file prevents concurrent runs (auto-cleaned after 5-minute staleness)
+- Resets unanalyzed-sessions.log after successful analysis
+- 20 new tests (222 total)
 
 ### 8. Artifact effectiveness tracking (Task 3.5)
 **Status:** Not started
@@ -151,11 +153,11 @@ All 11 tasks shipped. See `core-docs/history.md` for details.
 - Reference doc extraction (2.4) — detect verbose CLAUDE.md/rules and extract to Tier 3
 - ~~Tier demotion (2.5) — move domain-specific CLAUDE.md entries to scoped rules, oversized rules to references~~ ✅
 
-### Phase 3: Proactive Intelligence (v0.3) — ~30% complete
+### Phase 3: Proactive Intelligence (v0.3) — ~50% complete
 
 | Task | Status | Notes |
 |------|--------|-------|
-| 3.1 Background analysis on SessionStart | ❌ Not started | |
+| 3.1 Background analysis on SessionStart | ✅ Done | SessionStart hook + background-analyze.py, 20 tests |
 | 3.2 Between-task ambient nudge | ➡️ Replaced | Session-start nudge system via settings levels |
 | 3.3 Session-start passive briefing | ✅ Done | Nudge levels: quiet/balanced/eager |
 | 3.4 Stale config detection | ✅ Done | Cross-references artifacts against session data; 4 matching strategies |
@@ -173,6 +175,10 @@ All 11 tasks shipped. See `core-docs/history.md` for details.
 ---
 
 ## Recently Completed
+
+### Background analysis on SessionStart (v0.2.8)
+**Date:** 2026-03-31
+SessionStart hook auto-triggers Phase A analysis when unanalyzed sessions exceed the nudge level threshold. Spawns detached background process, zero LLM token cost. Lock file prevents concurrent runs. 20 new tests (222 total).
 
 ### Proposal builder bug fixes (v0.2.7)
 **Date:** 2026-03-30
