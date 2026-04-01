@@ -37,6 +37,33 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### SKILL.md fragility reduction: 206 → 127 lines (v0.3.3)
+**Date:** 2026-04-01
+**Branch:** skill-refactor
+
+**What was done:**
+Extracted three deterministic operations from SKILL.md prose into testable scripts:
+1. `format-proposals.py` — formats health table and proposal table as markdown
+2. `validate-paths.py` — validates proposed artifact paths against the security write boundary
+3. `merge-settings.py` — atomically merges hooks into `.claude/settings.json`
+
+SKILL.md reduced from 206 to 127 lines. 23 new tests covering all three scripts.
+
+**Why:**
+P2 from staff review. The 206-line SKILL.md was a program written in prose — ambiguous sentences became runtime bugs that couldn't be tested. Extracting deterministic logic into scripts makes it testable and removes LLM interpretation variance.
+
+**Design decisions:**
+- Scripts read JSON from stdin and output JSON to stdout — same pattern as all other Forge scripts. Composable with pipes.
+- `merge-settings.py` writes atomically via `tempfile.mkstemp` + `os.replace` to prevent corruption if the process is killed mid-write.
+- `validate-paths.py` uses `PurePosixPath` for normalization to catch `..` traversal even in nested paths.
+- SKILL.md kept the deep analysis orchestration and artifact generation logic as prose — these require LLM judgment and aren't deterministic.
+
+**Technical decisions:**
+- Chose to have `format-proposals.py` return JSON (with markdown strings inside) rather than raw markdown, so the skill can still programmatically check `proposal_count` and `has_deep_cache` before deciding what to show.
+- `merge-settings.py` handles the malformed-settings edge case by warning to stderr and starting fresh — better than failing, since the user explicitly approved the hook.
+
+---
+
 ### Classifier tuning: 47.8% → 89.4% accuracy on real data (v0.3.2)
 **Date:** 2026-04-01
 **Branch:** classifier-tuning
