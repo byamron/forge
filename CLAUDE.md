@@ -10,8 +10,8 @@ The plugin lives in `forge/` and is tested with `claude --plugin-dir ./forge`. A
 
 - **Skills** (`forge/skills/*/SKILL.md`): User-facing commands — `/forge` (unified analysis + review), `/forge:settings` (nudge frequency config), `/forge:version` (installed version and freshness check)
 - **Agents** (`forge/agents/*.md`): Subagents — `session-analyzer` (LLM analysis pass for deep mode)
-- **Scripts** (`forge/scripts/*.py`): Zero-token Phase A analysis — `analyze-config.py`, `analyze-transcripts.py`, `analyze-memory.py`
-- **Hooks** (`forge/hooks/hooks.json`): SessionEnd hook for session tracking
+- **Scripts** (`forge/scripts/*.py`): Analysis and lifecycle — `analyze-config.py`, `analyze-transcripts.py`, `analyze-memory.py` (Phase A analyzers), `build-proposals.py`, `cache-manager.py` (proposal pipeline), `check-pending.py`, `background-analyze.py` (SessionStart hooks), `log-session.sh`, `finalize-proposals.py`, `read-settings.py`, `write-settings.py` (utilities)
+- **Hooks** (`forge/hooks/hooks.json`): SessionStart (pending check + background analysis), SessionEnd (session logging + cache update)
 - **References** (`forge/references/*.md`): Templates and best practices used during artifact generation
 
 ## Key Constraints

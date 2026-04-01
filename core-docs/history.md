@@ -37,6 +37,30 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Background analysis on SessionStart (v0.2.8)
+**Date:** 2026-03-31
+**Branch:** session-start-hook
+**Commit:** (pending)
+
+**What was done:**
+Added SessionStart hook that auto-triggers background Phase A analysis when enough unanalyzed sessions accumulate. Also wires `check-pending.py` into the SessionStart hook for ambient nudges.
+
+**Why:**
+Task 3.1 — users shouldn't have to remember to run `/forge`. After enough sessions, Forge should proactively analyze in the background so proposals are ready when the user next invokes `/forge`.
+
+**Design decisions:**
+- Reuse nudge level thresholds for background analysis trigger (quiet=never, balanced=5, eager=2). If the user configured how proactive Forge should be, that should govern both nudging and background analysis.
+- Background process resets the unanalyzed-sessions.log after successful analysis, so the count starts fresh. Losing a concurrent SessionEnd entry is acceptable since the cache is already fresh.
+
+**Technical decisions:**
+- Script spawns itself with `--run` flag as a detached subprocess (`start_new_session=True`). This avoids inline Python hacks and keeps the lock file cleanup in a proper `finally` block.
+- Lock file with 5-minute staleness timeout prevents concurrent analysis runs. Stale locks from crashed processes are auto-cleaned.
+- Delegates actual analysis to existing `cache-manager.py --update`, which already orchestrates all Phase A scripts + proposal building.
+
+**Tradeoffs discussed:**
+- Could have created a separate wrapper script for the background process, but self-spawning with `--run` is simpler and keeps all logic in one file.
+- Could have atomically removed only the lines that existed before analysis started (to preserve concurrent SessionEnd entries), but truncation is simpler and the edge case is benign — the cache is fresh regardless.
+
 ### Transcript discovery integration tests
 **Date:** 2026-03-31
 **Branch:** transcript-discovery-tests
