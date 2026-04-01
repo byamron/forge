@@ -7,6 +7,10 @@
 # Scoring evaluation labeled data (contains real user messages)
 tests/scoring_eval/labeled/*.json
 
+# Ephemeral evaluation output
+eval_report.txt
+eval_result.json
+
 # Python
 __pycache__/
 *.pyc
