@@ -177,6 +177,9 @@ _MILD_CORRECTION = [
     # Factual pushback
     (re.compile(r"\bthere (?:absolutely|definitely|clearly) is\b", re.I), 0.25),
     (re.compile(r"\bwhat do you mean\b", re.I), 0.2),
+    # Approach rejection
+    (re.compile(r"\bwrong approach\b", re.I), 0.35),
+    (re.compile(r"\bnot the (?:right|correct) (?:way|approach)\b", re.I), 0.3),
     (re.compile(r"\btoo subtle\b", re.I), 0.15),
     (re.compile(r"\btoo much\b", re.I), 0.1),
     (re.compile(r"\bi (?:also )?requested?\b", re.I), 0.15),
