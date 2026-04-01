@@ -147,6 +147,10 @@ _STRONG_CORRECTION = [
     (re.compile(r"\bdon'?t (?:use|do|add|change|modify|remove)\b", re.I), 0.3),
     (re.compile(r"\bnever (?:use|do|add)\b", re.I), 0.3),
     (re.compile(r"\bshould(?:n'?t| not) (?:be|have|use)\b", re.I), 0.3),
+    # Approach / direction rejection
+    (re.compile(r"\bwrong approach\b", re.I), 0.4),
+    (re.compile(r"\bnot the (?:right|correct) (?:way|approach)\b", re.I), 0.35),
+    (re.compile(r"\bthis is the wrong\b", re.I), 0.4),
 ]
 _MILD_CORRECTION = [
     (re.compile(r"^no[,.\s]", re.I), 0.2),
@@ -154,38 +158,94 @@ _MILD_CORRECTION = [
     (re.compile(r"\binstead[,.]?\s", re.I), 0.15),
     (re.compile(r"\bswitch to\b", re.I), 0.15),
     (re.compile(r"\bwrong\b", re.I), 0.15),
-    (re.compile(r"\bthat should be\b", re.I), 0.15),
-    (re.compile(r"\bthis should be\b", re.I), 0.15),
+    # "that/this should be X" but NOT "that should be in/on/at" (location, not correction)
+    (re.compile(r"\bthat should be\b(?!\s+(?:in|on|at|under|from)\b)", re.I), 0.15),
+    (re.compile(r"\bthis should be\b(?!\s+(?:in|on|at|under|from)\b)", re.I), 0.15),
     (re.compile(r"\bnot that\b", re.I), 0.15),
-    # Reversal / negation patterns (from eval: "scratch that", "not quite")
+    # Reversal / negation patterns
     (re.compile(r"\bscratch that\b", re.I), 0.3),
     (re.compile(r"\bnot quite\b", re.I), 0.2),
     (re.compile(r"\bdo what you had before\b", re.I), 0.3),
     (re.compile(r"\brevert\b", re.I), 0.2),
     (re.compile(r"\bundo\b", re.I), 0.2),
     (re.compile(r"\badd .+ back\b", re.I), 0.2),
-    # Frustration / dealbreaker (from eval: "that's a dealbreaker")
+    # Frustration / dealbreaker
     (re.compile(r"\bdealbreaker\b", re.I), 0.3),
     (re.compile(r"\bnot sure why you\b", re.I), 0.1),
     (re.compile(r"\bwhy did you\b", re.I), 0.2),
     (re.compile(r"\bwhy would you\b", re.I), 0.2),
-    # Factual pushback (from eval: "there absolutely is a X", "what do you mean")
+    # Factual pushback
     (re.compile(r"\bthere (?:absolutely|definitely|clearly) is\b", re.I), 0.25),
     (re.compile(r"\bwhat do you mean\b", re.I), 0.2),
-    # Approach rejection (from eval: "this is the wrong approach")
+    # Approach rejection
     (re.compile(r"\bwrong approach\b", re.I), 0.35),
     (re.compile(r"\bnot the (?:right|correct) (?:way|approach)\b", re.I), 0.3),
     (re.compile(r"\btoo subtle\b", re.I), 0.15),
     (re.compile(r"\btoo much\b", re.I), 0.1),
     (re.compile(r"\bi (?:also )?requested?\b", re.I), 0.15),
-    # Explicit reframing of assistant's output (only "reframe" — "remove" is too ambiguous)
     (re.compile(r"\breframe\b", re.I), 0.15),
+    # Dissatisfaction signals
+    (re.compile(r"\bnot (?:quite )?doing it\b", re.I), 0.25),
+    (re.compile(r"\bstill (?:drawing|showing|doing)\b", re.I), 0.15),
+    (re.compile(r"\bsnapping\b", re.I), 0.15),
+    (re.compile(r"\bgo back to\b", re.I), 0.2),
+    (re.compile(r"\bwe can'?t\b", re.I), 0.15),
+    # Correcting existing state
+    (re.compile(r"\bi want to (?:remove|change|fix|redo)\b", re.I), 0.15),
+    # Questioning the assistant's understanding
+    (re.compile(r"\bwhat do you mean .+\?\b", re.I), 0.2),
+    (re.compile(r"\bthere (?:is no|are no)\b", re.I), 0.15),
+    # Outdated knowledge
+    (re.compile(r"\byour (?:context|knowledge|info)\b", re.I), 0.15),
+    (re.compile(r"\bis out\b.*\blook at\b", re.I), 0.15),
 ]
 _CONFIRMATORY = [
     re.compile(r"^(?:yes|yeah|yep|ok|okay|sure|perfect|great|thanks|thank you|looks? good|lgtm|nice|awesome|exactly)[.!,\s]*$", re.I),
     re.compile(r"\bthat(?:'?s| is) (?:right|correct|perfect|great|good)\b", re.I),
     re.compile(r"\bno(?:,| ).*(?:looks? good|that'?s (?:right|correct|perfect|great))", re.I),
 ]
+
+# Structural correction signals — patterns that indicate correction without
+# specific correction keywords (e.g., "this is better, but...", "too subtle")
+_STRUCTURAL_CORRECTION = [
+    # Starts with negation/pushback (exclude positive "this is better/great")
+    (re.compile(r"^(?:no|nah|nope|that'?s not|this isn'?t|we (?:can'?t|don'?t|shouldn'?t))\b", re.I), 0.15),
+    # Contrast markers
+    (re.compile(r"\bbut\b.*(?:should|need|want|instead|rather)", re.I), 0.1),
+    # Emotional intensifiers
+    (re.compile(r"\b(?:absolutely|definitely|clearly|obviously)\b", re.I), 0.1),
+    # "this is better, but/although" — iteration with continued issue
+    (re.compile(r"\b(?:this|that) is (?:better|closer|improved)\b.*\b(?:but|although|however|still|can we|could we)\b", re.I), 0.1),
+    # "too X" pattern — dissatisfaction with degree
+    (re.compile(r"\btoo (?:subtle|much|aggressive|slow|fast|big|small|long|short)\b", re.I), 0.15),
+    # "not quite/exactly/doing/working/right"
+    (re.compile(r"\bnot (?:quite|exactly|doing|working|right)\b", re.I), 0.15),
+    # Correcting current output
+    (re.compile(r"\bi want to (?:remove|change|redo|revert|fix)\b", re.I), 0.15),
+    # Reversal
+    (re.compile(r"\b(?:go back|restore|bring back|put .+ back)\b", re.I), 0.15),
+    # Questioning the assistant
+    (re.compile(r"\bwhat do you mean\b", re.I), 0.15),
+    (re.compile(r"\bwhy (?:did|would|are) you\b", re.I), 0.1),
+    # Factual correction (only with intensifier)
+    (re.compile(r"\bthere (?:absolutely|definitely|clearly) (?:is|are|isn'?t|aren'?t)\b", re.I), 0.15),
+]
+
+# False positive filters — patterns that strongly indicate NOT a correction
+_NOT_CORRECTION = [
+    re.compile(r"^#\s", re.M),
+    re.compile(r"^Base directory for this skill:", re.I),
+    re.compile(r"^You are running", re.I),
+    re.compile(r"^Ship the current branch:", re.I),
+    re.compile(r"update docs.*commit.*push", re.I),
+    re.compile(r"^(?:fix|add|remove|run|build|merge|push|ship|deploy)\s+(?:all|this|these|it)\s*$", re.I),
+]
+
+# Confirmatory opener + pivot to instruction (not a correction)
+_CONFIRM_THEN_PIVOT = re.compile(
+    r"^(?:yes|yeah|yep|great|good|nice|perfect|ok|okay)\s*[-\u2014\u2013,]\s*(?:but|and|now|let'?s|we)\b",
+    re.I,
+)
 
 # Post-action commands to watch for
 POST_ACTION_COMMANDS = [
@@ -229,7 +289,7 @@ def classify_response(
     correction_strength is 0.0-1.0 for corrective, 0.0 otherwise.
     """
     text = user_text.strip()
-    if not text or len(text) < 5:
+    if not text:
         return ("followup", 0.0)
 
     # Slash commands are instructions, not corrections
@@ -238,91 +298,124 @@ def classify_response(
 
     text_lower = text.lower()
 
-    # --- Check confirmatory first ---
+    # --- Early exits for clear non-corrections ---
+    # Skill invocations (multi-line, starts with #)
+    if "\n" in text and (text.startswith("#") or text.startswith("##")):
+        return ("new_instruction", 0.0)
+
+    # False positive filter: template/workflow messages are never corrections
+    is_template = any(pat.search(text) for pat in _NOT_CORRECTION)
+
+    # --- Check confirmatory ---
     for pat in _CONFIRMATORY:
         if pat.search(text_lower):
             return ("confirmatory", 0.0)
 
+    # Very short continuation signals (exact match or known phrases)
+    _CONTINUE_SIGNALS = {"resume", "retry", "continue", "go ahead", "proceed"}
+    stripped = text_lower.strip().rstrip(".!")
+    if stripped in _CONTINUE_SIGNALS:
+        return ("followup", 0.0)
+    # Longer continuation phrases
+    _CONTINUE_PHRASES = [
+        "continue from where you left off",
+        "pick up where you left off",
+        "keep going",
+    ]
+    if any(stripped.startswith(p) for p in _CONTINUE_PHRASES):
+        return ("followup", 0.0)
+
+    # --- Check for confirmatory opener + pivot (not a correction) ---
+    confirm_pivot = bool(_CONFIRM_THEN_PIVOT.match(text))
+
     # --- Score correction signals ---
-    score = 0.0
+    keyword_score = 0.0
 
-    # Keyword scoring
-    for pat, weight in _STRONG_CORRECTION:
-        if pat.search(text_lower):
-            score += weight
-    for pat, weight in _MILD_CORRECTION:
-        if pat.search(text_lower):
-            score += weight
+    if not is_template:
+        score = 0.0
+        # Keyword scoring
+        for pat, weight in _STRONG_CORRECTION:
+            if pat.search(text_lower):
+                score += weight
+        for pat, weight in _MILD_CORRECTION:
+            if pat.search(text_lower):
+                score += weight
 
-    # Cap keyword score at 0.5 — needs context to go higher
-    keyword_score = min(score, 0.5)
+        # Cap keyword score at 0.5 — needs context to go higher
+        keyword_score = min(score, 0.5)
 
-    # --- Context: does the user reference the assistant's action? ---
-    action_ref_score = 0.0
-    if assistant_tools:
-        # User references tool names or file paths from the action
-        tool_names = [t.get("name", "").lower() for t in assistant_tools]
-        for tn in tool_names:
-            if tn and tn in text_lower:
-                action_ref_score += 0.1
+        # Structural correction signals (supplementary)
+        structural_score = 0.0
+        for pat, weight in _STRUCTURAL_CORRECTION:
+            if pat.search(text):
+                structural_score += weight
+        structural_score = min(structural_score, 0.2)
 
-        for fp in assistant_files:
-            # Check filename (not full path)
-            fname = fp.rsplit("/", 1)[-1].lower() if "/" in fp else fp.lower()
-            if fname and fname in text_lower:
-                action_ref_score += 0.15
+        # --- Context: does the user reference the assistant's action? ---
+        action_ref_score = 0.0
+        if assistant_tools:
+            tool_names = [t.get("name", "").lower() for t in assistant_tools]
+            for tn in tool_names:
+                if tn and tn in text_lower:
+                    action_ref_score += 0.1
 
-    # Check for word overlap with assistant text (indicates referencing the action)
-    if assistant_text:
-        user_tokens = set(tokenize(text))
-        asst_tokens = set(tokenize(assistant_text[:500]))
-        if user_tokens and asst_tokens:
-            overlap = len(user_tokens & asst_tokens) / max(len(user_tokens), 1)
-            if overlap > 0.2:
-                action_ref_score += 0.1
+            for fp in assistant_files:
+                fname = fp.rsplit("/", 1)[-1].lower() if "/" in fp else fp.lower()
+                if fname and fname in text_lower:
+                    action_ref_score += 0.15
 
-    action_ref_score = min(action_ref_score, 0.3)
+        if assistant_text:
+            user_tokens = set(tokenize(text))
+            asst_tokens = set(tokenize(assistant_text[:500]))
+            if user_tokens and asst_tokens:
+                overlap = len(user_tokens & asst_tokens) / max(len(user_tokens), 1)
+                if overlap > 0.2:
+                    action_ref_score += 0.1
 
-    # --- Imperative / directive tone ---
-    imperative_score = 0.0
-    # Short, directive messages after actions are likely corrections
-    if len(text.split()) < 20 and assistant_tools:
-        imperative_score += 0.1
-    # Very short imperative ("use X", "change Y to Z")
-    if len(text.split()) < 10 and keyword_score > 0:
-        imperative_score += 0.1
-    imperative_score = min(imperative_score, 0.2)
+        action_ref_score = min(action_ref_score, 0.3)
 
-    total = keyword_score + action_ref_score + imperative_score
+        # --- Imperative / directive tone ---
+        imperative_score = 0.0
+        if len(text.split()) < 20 and assistant_tools:
+            imperative_score += 0.1
+        if len(text.split()) < 10 and keyword_score > 0:
+            imperative_score += 0.1
+        imperative_score = min(imperative_score, 0.2)
 
-    if total >= 0.15:
-        return ("corrective", min(total, 1.0))
+        total = keyword_score + structural_score + action_ref_score + imperative_score
+
+        # Adaptive threshold: confirmatory pivots and keyword-less questions
+        # need stronger signal to classify as corrective
+        threshold = 0.15
+        if confirm_pivot:
+            threshold = 0.40
+        elif text.rstrip().endswith("?") and keyword_score == 0:
+            threshold = 0.30
+
+        if total >= threshold:
+            return ("corrective", min(total, 1.0))
 
     # --- Not corrective: new instruction or followup? ---
     words = text.split()
     word_count = len(words)
 
-    # Multi-line messages with headers are instructions (skill invocations, etc.)
-    if "\n" in text and (text.startswith("#") or text.startswith("##")):
+    # Single-word imperatives (catch before word_count <= 4 path)
+    _SINGLE_WORD_INSTRUCTIONS = {
+        "fix", "retry", "build", "deploy", "ship", "merge", "push",
+    }
+    if word_count == 1 and words[0].lower().rstrip(".!") in _SINGLE_WORD_INSTRUCTIONS:
         return ("new_instruction", 0.0)
 
-    # Very short continuation signals
-    _CONTINUE_SIGNALS = {"resume", "retry", "continue", "go ahead", "proceed"}
-    if text_lower.strip().rstrip(".!") in _CONTINUE_SIGNALS:
-        return ("followup", 0.0)
-
-    # Short confirmations / status updates (< 5 words, no verb-leading imperative)
     if word_count <= 4:
         first_lower = words[0].lower().rstrip(",.")
-        # Imperative verbs → new instruction ("fix this", "add X", "run Y")
         _IMPERATIVE_STARTS = {
             "fix", "add", "remove", "delete", "update", "change", "create",
             "run", "build", "merge", "push", "ship", "deploy", "scan",
             "make", "check", "review", "open", "close", "get", "set",
+            "let's", "lets",
         }
         if first_lower in _IMPERATIVE_STARTS:
             return ("new_instruction", 0.0)
-        # Otherwise short non-imperative → followup ("yes", "xcode is closed")
         return ("followup", 0.0)
 
     # Questions without correction keywords → followup
