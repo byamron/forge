@@ -85,6 +85,30 @@ This function is the most fragile production code path — 5 strategies, subproc
 - Option A (monkeypatch) vs Option B (dependency injection refactor): chose A because the production code is stable and well-structured; refactoring it purely for testability would add complexity with no user-facing benefit.
 - Considered testing `_decode_project_dir` with synthetic paths, but using real tmp_path directories exercises the greedy path reconstruction algorithm end-to-end, which is more valuable.
 
+### Reference doc extraction — complete Task 2.4, finish Phase 2
+**Date:** 2026-03-31
+**Branch:** finish-ref-doc-extraction
+
+**What was done:**
+Completed the last Phase 2 task: verbose CLAUDE.md section detection and extraction to reference docs. Forge can now detect CLAUDE.md sections with prose content (>3 lines) and propose extracting them to `.claude/references/`, leaving a one-line pointer in CLAUDE.md. This completes the full tier demotion pipeline: domain-specific entries→rules, oversized rules→references, verbose sections→references, memory→all artifact types.
+
+**Why:**
+CLAUDE.md is loaded every session (Tier 1). Verbose explanatory sections waste context budget — they should be in reference docs (Tier 3) where Claude loads them on demand. This was the only remaining gap in Phase 2.
+
+**Design decisions:**
+- Prose detection heuristic: count lines >60 chars that don't start with bullet/table/heading markers. Require 2+ prose lines — pure bullet lists of short rules are fine in CLAUDE.md even if long. This avoids false positives on well-structured directive lists.
+- `min_lines=4` default threshold: sections with fewer than 4 non-empty lines aren't worth extracting — the overhead of a separate file + pointer outweighs the savings.
+
+**Technical decisions:**
+- `_is_verbose_section()` is a standalone function (not inline in `find_demotion_candidates`) so it can be tested independently and potentially reused for rule verbosity detection later.
+- `find_demotion_candidates()` gained an optional `claude_md_sections` parameter (defaults to `None`/empty list) to preserve backward compatibility with existing callers and tests.
+- Proposal `action` is `claude_md_verbose_to_reference` (distinct from `claude_md_to_rule` and `rule_to_reference`) so the SKILL.md can give specific execution instructions: find section by heading, replace body, keep heading line.
+- Confidence is `high` for 8+ line sections, `medium` for shorter ones — larger sections are more clearly worth extracting.
+
+**Tradeoffs discussed:**
+- Could have used a more sophisticated NLP approach (sentence detection, readability scores) for prose classification. Chose simple character-count + prefix heuristics because the standard-library constraint rules out NLP packages, and the heuristic is good enough for the common case.
+- Could have also detected verbose subsections within a section (e.g., a section with both bullets and a long paragraph). Chose to operate at the `## heading` section granularity since that's what `_parse_claude_md_sections` already provides and partial extraction would be much more complex.
+
 ### Fix proposal builder bugs (v0.2.7)
 **Date:** 2026-03-30
 **Branch:** test-forge-on-synthetic

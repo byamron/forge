@@ -2,7 +2,7 @@
 
 ## Current Focus
 
-Parallel tracks: (1) real-world testing of Forge v0.2.7 via private marketplace install, and (2) continuing development on remaining Phase 2 + Phase 3 features.
+Phase 2 complete. Remaining tracks: (1) real-world testing via private marketplace install, (2) Phase 3 features (background analysis, effectiveness tracking), and (3) high-priority backlog (transcript discovery integration tests, scoring evaluation).
 
 ## Handoff Notes
 
@@ -100,14 +100,18 @@ Completed:
 - 24 new tests covering the full pipeline
 
 ### 6. Reference doc extraction (Task 2.4)
-**Status:** Partial (memory→reference works)
+**Status:** Done
 **Goal:** Auto-detect verbose CLAUDE.md entries and rules, extract to Tier 3 references.
 
-Scope:
-- Detect CLAUDE.md entries >3 lines that could be extracted
-- Detect rule files exceeding budget (~50-100 lines)
-- Generate reference doc with extracted content
-- Replace original with a one-line pointer to the reference
+Implemented:
+- `_is_verbose_section()` detects CLAUDE.md sections with 4+ lines containing prose (not just bullet lists)
+- `find_demotion_candidates()` now accepts `claude_md_sections` and emits `claude_md_verbose_to_reference` candidates
+- `_build_from_demotions()` generates extraction proposals with `demotion_detail.action = "claude_md_verbose_to_reference"`
+- SKILL.md updated with three-step execution for verbose extraction: write reference doc, find section by heading, replace body with pointer
+- `_build_context_health()` includes verbose extraction in demotion candidate count
+- Oversized rule→reference detection was already working (>80 lines)
+- Memory→reference was already working
+- 18 new tests (220 total): 7 detection tests (`_is_verbose_section` + `find_demotion_candidates`), 7 proposal tests, budget/health tests
 
 ### 7. Background analysis on SessionStart (Task 3.1)
 **Status:** Done (v0.2.8)
@@ -136,22 +140,20 @@ Scope:
 ### Phase 1: Foundation (v0.1) — COMPLETE
 All 11 tasks shipped. See `core-docs/history.md` for details.
 
-### Phase 2: Full Artifact Coverage (v0.2) — ~70% complete
+### Phase 2: Full Artifact Coverage (v0.2) — COMPLETE
 
 | Task | Status | Notes |
 |------|--------|-------|
 | 2.1 Skill generation | ✅ Done | Detects repeated prompts, generates SKILL.md templates |
 | 2.2 Hook generation | ✅ Done | PostToolUse hooks for formatters/linters by tech stack |
 | 2.3 Agent generation | ✅ Done | Workflow detection + archetype-based agent markdown generation |
-| 2.4 Reference doc generation | ⚠️ Partial | Memory→reference works; no verbose CLAUDE.md extraction |
+| 2.4 Reference doc generation | ✅ Done | Verbose CLAUDE.md→reference + oversized rule→reference + memory→reference |
 | 2.5 Tier promotion/demotion | ✅ Done | Promotion (memory→artifacts) + demotion (CLAUDE.md→rules, rules→references) |
 | 2.6 MCP Elicitation | ➡️ Replaced | AskUserQuestion used instead; no MCP server |
 | 2.7 Repeated prompt detection | ✅ Done | TF-IDF + Jaccard similarity, 4+ session threshold |
 | 2.8 Post-action detection | ✅ Done | Write/Edit→Bash pattern detection across sessions |
 
-**Remaining Phase 2 work:**
-- Reference doc extraction (2.4) — detect verbose CLAUDE.md/rules and extract to Tier 3
-- ~~Tier demotion (2.5) — move domain-specific CLAUDE.md entries to scoped rules, oversized rules to references~~ ✅
+**All Phase 2 tasks complete.** Every artifact type (skills, hooks, agents, references) is covered, plus tier promotion/demotion.
 
 ### Phase 3: Proactive Intelligence (v0.3) — ~50% complete
 

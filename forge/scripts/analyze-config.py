@@ -767,16 +767,62 @@ def _classify_domain(content: str) -> Optional[Tuple[str, str, List[str]]]:
     return None
 
 
-def find_demotion_candidates(root: Path, placement_issues: List[Dict], context_budget: Dict) -> Dict[str, Any]:
+def _is_verbose_section(content: str, min_lines: int = 4) -> bool:
+    """Check if a CLAUDE.md section is verbose enough to extract to a reference.
+
+    A section is "verbose" if it has more than *min_lines* non-empty content
+    lines AND contains prose (sentences, not just bullet lists or short
+    directives).  Pure bullet lists of short rules are fine in CLAUDE.md — we
+    only flag sections with explanatory paragraphs, examples, or tables that
+    would be better as reference docs.
+
+    Lines inside fenced code blocks (``` ... ```) are excluded from both the
+    line count and prose detection — code examples are legitimate content.
+    """
+    raw_lines = content.splitlines()
+
+    # Filter out fenced code block content
+    outside_lines = []  # type: List[str]
+    in_code_block = False
+    for ln in raw_lines:
+        stripped = ln.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue  # skip the fence markers themselves
+        if not in_code_block and stripped:
+            outside_lines.append(stripped)
+
+    if len(outside_lines) < min_lines:
+        return False
+
+    # Count prose indicators: lines that look like sentences (>60 chars,
+    # don't start with list markers, table pipes, or headings).
+    # Markdown bullets use "- " or "* " (with space). Bare "*word" or
+    # "**word**" is emphasis and should count as prose.
+    prose_count = 0
+    for stripped in outside_lines:
+        if (len(stripped) > 60
+                and not stripped.startswith(("- ", "* ", "| ", "# "))):
+            prose_count += 1
+
+    # Need at least 2 prose lines — pure bullet lists aren't verbose
+    return prose_count >= 2
+
+
+def find_demotion_candidates(root: Path, placement_issues: List[Dict],
+                             context_budget: Dict,
+                             claude_md_sections: Optional[List[Dict]] = None) -> Dict[str, Any]:
     """Find candidates for tier demotion.
 
     Returns structured demotion candidates:
     - claude_md_to_rule: domain-specific CLAUDE.md entries grouped by domain
     - rule_to_reference: oversized rule files (>80 lines)
+    - claude_md_verbose_to_reference: verbose CLAUDE.md sections (>3 lines of prose)
     """
     candidates = {
         "claude_md_to_rule": [],
         "rule_to_reference": [],
+        "claude_md_verbose_to_reference": [],
     }  # type: Dict[str, Any]
 
     # --- Group placement issues by domain ---
@@ -831,14 +877,38 @@ def find_demotion_candidates(root: Path, placement_issues: List[Dict], context_b
                     "line_count": len(lines),
                 })
 
+    # --- Detect verbose CLAUDE.md sections → reference doc candidates ---
+    sections = claude_md_sections if claude_md_sections is not None else []
+    for section in sections:
+        heading = section.get("heading", "")
+        content = section.get("content", "")
+        if not heading or not content:
+            continue
+        if _is_verbose_section(content):
+            content_lines = [ln for ln in content.splitlines() if ln.strip()]
+            name = re.sub(r'[^a-z0-9]+', '-', heading.lower()).strip('-')[:30]
+            if not name:
+                name = "section"
+            candidates["claude_md_verbose_to_reference"].append({
+                "heading": heading,
+                "name": name,
+                "line_start": section.get("line_start", 0),
+                "line_end": section.get("line_end", 0),
+                "line_count": len(content_lines),
+                "content": content,
+            })
+
     # --- Budget context ---
     claude_md_lines = context_budget.get("claude_md_lines", 0)
+    verbose_lines = sum(
+        s["line_count"] for s in candidates["claude_md_verbose_to_reference"]
+    )
     candidates["budget"] = {
         "claude_md_lines": claude_md_lines,
         "over_budget": claude_md_lines > 200,
         "total_demotable_lines": sum(
             len(g["entries"]) for g in candidates["claude_md_to_rule"]
-        ),
+        ) + verbose_lines,
     }
 
     return candidates
@@ -879,7 +949,7 @@ def main():
         placement_issues = find_placement_issues(root)
         claude_md_sections = _parse_claude_md_sections(root)
         demotion_candidates = find_demotion_candidates(
-            root, placement_issues, budget
+            root, placement_issues, budget, claude_md_sections
         )
 
         output = {

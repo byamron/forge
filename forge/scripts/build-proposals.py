@@ -673,6 +673,7 @@ def _build_from_demotions(config: Dict) -> List[Dict]:
 
     budget_info = demotions.get("budget", {})
     over_budget = budget_info.get("over_budget", False)
+    seen_ids = set()  # type: set
 
     # --- CLAUDE.md → scoped rules ---
     for group in demotions.get("claude_md_to_rule", []):
@@ -722,6 +723,60 @@ def _build_from_demotions(config: Dict) -> List[Dict]:
             "status": "pending",
         })
 
+    # --- Verbose CLAUDE.md sections → reference docs ---
+    for section in demotions.get("claude_md_verbose_to_reference", []):
+        heading = section["heading"]
+        name = section["name"]
+        line_count = section["line_count"]
+        content = section["content"]
+
+        # Deduplicate IDs (and paths) for sections with identical headings
+        base_id = f"extract-{name}-to-ref"
+        proposal_id = base_id
+        ref_name = name
+        idx = 2
+        while proposal_id in seen_ids:
+            proposal_id = f"{base_id}-{idx}"
+            ref_name = f"{name}-{idx}"
+            idx += 1
+        seen_ids.add(proposal_id)
+
+        pointer = (
+            f"For detailed {heading.lower()} guidelines, see "
+            f".claude/references/{ref_name}.md"
+        )
+
+        proposals.append({
+            "id": proposal_id,
+            "type": "demotion",
+            "impact": _score_impact(
+                "demotion",
+                severity="over_budget" if over_budget else "",
+            ),
+            "confidence": "high" if line_count >= 8 else "medium",
+            "description": (
+                f"Extract verbose section \"{heading}\" from CLAUDE.md "
+                f"({line_count} lines) to .claude/references/{ref_name}.md"
+            ),
+            "evidence_summary": (
+                f"The \"{heading}\" section in CLAUDE.md is {line_count} "
+                f"lines of prose — extracting to a reference doc keeps "
+                f"CLAUDE.md concise while preserving the detail."
+            ),
+            "suggested_content": content,
+            "suggested_path": f".claude/references/{ref_name}.md",
+            "demotion_detail": {
+                "action": "claude_md_verbose_to_reference",
+                "source_file": "CLAUDE.md",
+                "heading": heading,
+                "line_start": section.get("line_start", 0),
+                "line_end": section.get("line_end", 0),
+                "pointer": pointer,
+                "lines_saved": line_count,
+            },
+            "status": "pending",
+        })
+
     # --- Oversized rules → reference docs ---
     for rule in demotions.get("rule_to_reference", []):
         rule_path = rule["path"]
@@ -738,9 +793,9 @@ def _build_from_demotions(config: Dict) -> List[Dict]:
                 f"to .claude/references/{filename}.md"
             ),
             "evidence_summary": (
-                f"{rule_path} is {line_count} lines — Anthropic recommends "
-                f"50-100 lines per rule. Extract verbose sections to a "
-                f"reference doc."
+                f"{rule_path} is {line_count} lines — rules load into "
+                f"context every session, so extracting verbose detail to a "
+                f"reference doc reduces always-loaded context."
             ),
             "suggested_content": "",  # LLM reads the rule and decides
             "suggested_path": f".claude/references/{filename}.md",
@@ -1266,6 +1321,7 @@ def _build_context_health(config: Dict,
     demotion_count = (
         len(demotions.get("claude_md_to_rule", []))
         + len(demotions.get("rule_to_reference", []))
+        + len(demotions.get("claude_md_verbose_to_reference", []))
     )
     health["demotion_candidates"] = demotion_count
 
