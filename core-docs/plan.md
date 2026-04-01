@@ -2,13 +2,13 @@
 
 ## Current Focus
 
-Classifier tuning complete (v0.3.2): correction precision 100%, recall 86.7%, overall accuracy 89.4%. The remaining 12 misclassifications are on the followup/new_instruction boundary — genuinely ambiguous, not fixable without overfitting. Next priority: SKILL.md fragility reduction (P2) — push deterministic logic from prose into testable scripts.
+SKILL.md fragility reduction complete (v0.3.3): 206 → 127 lines. Three scripts extracted (`format-proposals.py`, `validate-paths.py`, `merge-settings.py`) with 23 tests. All active P0-P3 items complete.
 
 ## Handoff Notes
 
-- Labeled data at `tests/scoring_eval/labeled/{portfolio-site,priorityapp}_pairs.json` (gitignored). 113 pairs labeled.
 - Background deep analysis is implemented but untested end-to-end with `analysis_depth: "deep"`. Should verify the `claude -p --bare` invocation works on a real project.
-- SKILL.md is 209 lines of prose that's hard to test. P2 scopes the refactor.
+- Labeled eval data at `tests/scoring_eval/labeled/*.json` (gitignored). 113 pairs labeled.
+- Phase 4 (cross-project aggregation, explain mode, self-cost tracking) not yet scoped.
 
 ## Spec & Roadmap
 
@@ -60,18 +60,15 @@ Scope:
 - Add effectiveness stats to `analyzer-stats.json` for aggregate tracking
 
 ### P2. Reduce SKILL.md fragility
-**Status:** Not started
-**Priority:** MEDIUM — the 209-line SKILL.md is a program written in prose. Ambiguity in instructions becomes runtime bugs that are hard to reproduce or test.
-**Goal:** Push deterministic logic out of SKILL.md prose and into scripts. The skill should orchestrate, not compute.
+**Status:** Complete (v0.3.3)
+**Priority:** MEDIUM
+**Goal:** Push deterministic logic out of SKILL.md prose and into scripts.
 
-**Why this is P2:** The `/forge` SKILL.md orchestrates a multi-step pipeline (resolve plugin root, run analysis, present proposals, generate artifacts, finalize) entirely through natural language instructions that the LLM interprets at runtime. Every ambiguous sentence is a potential bug that can't be caught by tests. Moving deterministic steps into scripts makes them testable and removes interpretation variance.
-
-Scope:
-- Extract proposal presentation logic into a script that formats the health table and proposal table as text (SKILL.md just prints the output)
-- Extract path validation into a script (SKILL.md calls it before writing)
-- Extract settings.json merge logic into a script (SKILL.md calls it instead of hand-merging)
-- Reduce SKILL.md to ~100 lines of orchestration: run script → show output → ask questions → write files → finalize
-- Add tests for the extracted scripts
+Deliverables:
+- ✅ `format-proposals.py` — health table + proposal table formatting (9 tests)
+- ✅ `validate-paths.py` — path security validation (8 tests)
+- ✅ `merge-settings.py` — atomic settings.json hook merging (6 tests)
+- ✅ SKILL.md reduced from 206 to 127 lines
 
 ### P3. Consolidate `find_project_root()`
 **Status:** Complete (v0.3.0)
