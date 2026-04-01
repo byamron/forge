@@ -45,6 +45,23 @@ def _strip_url_credentials(url: str) -> str:
         return "<redacted-url>"
 
 
+def find_project_root(override: Optional[str] = None) -> Path:
+    """Find the project root by walking up from cwd.
+
+    If *override* is provided, use it directly. Otherwise walk up from the
+    current working directory looking for ``.git`` or ``.claude`` markers.
+    Falls back to cwd if no marker is found.
+    """
+    if override:
+        return Path(override).resolve()
+    current = Path.cwd().resolve()
+    while current != current.parent:
+        if (current / ".git").exists() or (current / ".claude").exists():
+            return current
+        current = current.parent
+    return Path.cwd().resolve()
+
+
 def compute_project_hash(project_root: Path) -> str:
     """Compute a stable hash identifying this project across worktrees.
 

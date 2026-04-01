@@ -2,11 +2,13 @@
 
 ## Current Focus
 
-Phase 2 complete. Remaining tracks: (1) real-world testing via private marketplace install, (2) Phase 3 features (background analysis, effectiveness tracking), and (3) high-priority backlog (transcript discovery integration tests, scoring evaluation).
+Scoring evaluation baseline established: correction classifier recall is 13.3% (target >70%), accuracy 47.8%. The classifier is too keyword-dependent — real corrections use conversational language the keyword list doesn't cover. Next priority: threshold tuning using the 113-pair labeled dataset as a regression test. Background deep analysis (v0.3.1) partially mitigates the classifier weakness by running an LLM pass that catches patterns scripts miss.
 
 ## Handoff Notes
 
-None.
+- Labeled data at `tests/scoring_eval/labeled/{portfolio-site,priorityapp}_pairs.json` (gitignored). 113 pairs labeled, 119 unlabeled.
+- Key misclassification patterns: "that's not quite doing it" (mild correction → classified as followup), "scratch that" (reversal → new_instruction), "there absolutely is a pill" (factual correction → followup). These all need new keyword patterns or a fundamentally different approach.
+- Background deep analysis is implemented but untested on a real project with `analysis_depth: "deep"` set. Should verify the `claude -p --bare` invocation works end-to-end.
 
 ## Spec & Roadmap
 
@@ -17,121 +19,105 @@ Original spec (`core-docs/spec.md`) and roadmap (`core-docs/roadmap.md`) are che
 - Ambient nudge (Task 3.2) was replaced with session-start nudge system
 - Deep analysis mode was added (not in original roadmap) — background LLM pass for contextual patterns
 
-## Active Work Items
+## Active Work Items — Priority Order
 
-### 0. User-level data storage migration
-**Status:** Complete
-**Goal:** Eliminate `.claude/forge/` from the project directory entirely. All Forge runtime data (decisions, caches, session log) stored in `~/.claude/forge/projects/<hash>/`, shared across worktrees, invisible to git.
+### P0. Scoring evaluation infrastructure
+**Status:** Infrastructure complete — ready for labeling
+**Priority:** CRITICAL — this is the single biggest product risk. Without measured precision/recall, every threshold change is a guess.
+**Goal:** Build tooling to extract real conversation pairs, label them, and measure classifier accuracy. Then use that data to tune thresholds.
 
-Implemented:
-- `project_identity.py` — shared module for project hash (git remote URL → SHA-256) and user data dir resolution
-- All scripts updated: `finalize-proposals.py`, `cache-manager.py`, `read-settings.py`, `write-settings.py`, `check-pending.py`, `log-session.sh`
-- Transparent migrate-on-read from legacy `.claude/forge/` location
-- `project_identity.py` CLI for shell script interop
-- 13 new tests in `test_project_identity.py`, cache manager tests updated
-- Version bumped to 0.2.5
+**Why this is P0:** Forge's entire value proposition is "we detect the right patterns and suggest the right artifacts." The correction classifier and theme clustering use hard-coded thresholds (0.25 corrective classification, 3.0/6.0 theme confidence, keyword weights like 0.4 for "I told you") that were set by intuition. If these are wrong, Forge either generates noisy proposals (false positives → user loses trust) or misses real patterns (false negatives → Forge appears useless). This is the experiment that tells us whether the product works.
 
-### 1. Real-world testing via marketplace install
-**Status:** Starting
-**Goal:** Validate the full plugin experience as a marketplace user, not a developer running `--plugin-dir`.
+Scope (from `tests/SCORING_EVAL_PLAN.md`):
+1. **Pair extraction script** — reads real JSONL transcripts, outputs assistant→user conversation pairs in a reviewable format
+2. **Evaluation script** — runs `classify_response()` against labeled ground-truth data, reports precision/recall/F1
+3. **Diagnostic review script** — reads cached transcript analysis, shows scoring details, near-misses, and threshold sensitivity
+4. **Threshold tuning** — adjust weights and thresholds based on measured data, using the labeled set as a regression test
 
-Testing surface:
-- Install from private marketplace UI
-- `/forge` — config health audit + pattern detection on real projects
-- `/forge --deep` — LLM-enhanced analysis (background agent, proposal merging)
-- Proposal review flow — approve/modify/skip/never decisions, artifact generation
-- `/forge:settings` — nudge level and analysis depth configuration
-- `/forge:version` — installed version and freshness reporting
-- SessionEnd hooks — session logging and background cache warming
-- Nudge behavior — session-start nudges based on unanalyzed session count
+Deliverables:
+- ✅ `tests/scoring_eval/extract_pairs.py` — extracts pairs from real transcripts
+- ✅ `tests/scoring_eval/eval_classifier.py` — measures precision/recall/F1 against labeled data
+- ✅ `tests/scoring_eval/review_diagnostics.py` — reads cached analysis, shows scores and sensitivity
+- ✅ `tests/scoring_eval/labeled/README.md` — labeling guidelines and severity definitions
+- ✅ `.gitignore` entry for `tests/scoring_eval/labeled/*.json`
+- ✅ `tests/test_scoring_eval.py` — 17 tests for the evaluation infrastructure
+- ✅ Label 113 pairs from 2 real projects (portfolio-site: 60, PriorityAppXcode: 53)
+- ✅ Run eval_classifier.py — correction recall 13.3% (target >70%), accuracy 47.8%
+- 🔲 Tune thresholds and keyword patterns based on measured data (use labeled set as regression test)
 
-What to watch for:
-- False positives/negatives in pattern detection
-- UX friction (confusing output, too many steps, unclear proposals)
-- Bugs in cross-worktree transcript discovery
-- Generated artifact quality (rules, skills, hooks, CLAUDE.md entries)
-- Performance (scripts should complete in <2s, deep mode <10s)
-- Python 3.8 compat on target machines
+### P1. Artifact effectiveness tracking (Task 3.5)
+**Status:** Complete (v0.3.0)
+**Priority:** HIGH — closes the feedback loop. Without this, Forge can propose but can't learn whether proposals helped.
+**Goal:** After deploying an artifact, track whether the triggering pattern stops appearing in subsequent sessions.
 
-### 2. Tier demotion / budget rebalancing (Task 2.5)
-**Status:** Complete
-**Goal:** Complete the tier management system — Forge can promote content up and now suggests moving bloated content down.
-
-Implemented:
-- Domain classifier groups placement issues by domain (react, python, testing, etc.)
-- `find_demotion_candidates()` in analyze-config.py groups domain-specific CLAUDE.md entries and detects oversized rules (>80 lines)
-- `_build_from_demotions()` in build-proposals.py creates `demotion` proposals with `demotion_detail` for two-step execution
-- Budget-aware impact scoring (high when CLAUDE.md >200 lines, medium otherwise)
-- SKILL.md updated with demotion handling: create new file + replace source content with one-line pointer
-- `finalize-proposals.py` tracks `demotion` type under `tier_management` category
-- 30 new tests covering domain classification, grouping, proposal generation, and budget rebalancing
-
-### 3. Synthetic test dataset generator
-**Status:** Complete
-**Goal:** Create a Python test infrastructure that generates realistic project fixtures (files, transcripts, memory) exercising the full analysis pipeline, enabling fast integration testing across different project profiles.
-
-Implemented:
-- `tests/generate_fixtures.py` — generator with 5 profiles (swift-ios, react-ts, python-corrections, rust-minimal, fullstack-mature)
-- `tests/test_integration_pipeline.py` — 47 integration tests running full pipeline on each profile
-- `tests/conftest.py` — session-scoped fixtures for each profile
-- Total test count: 202, all passing in <0.3s
-- Standalone CLI for manual fixture generation
-
-### 4. Stale config detection (Task 3.4)
-**Status:** Done (v0.2.6)
-**Goal:** Detect rules, skills, and CLAUDE.md entries that haven't been relevant in recent sessions.
-
-Shipped:
-- Cross-references existing artifacts against recent session transcripts via session text index + tool paths
-- Flags artifacts not referenced in 15+ sessions (name match, keyword co-occurrence, slash-command match, glob-based path matching)
-- Proposes archiving/removing stale content as `stale_artifact` proposals
-- Reports stale artifact count in `/forge` health summary table
-- Requires 10+ sessions minimum before running staleness analysis
-
-### 5. Agent generation (Task 2.3)
-**Status:** Done
-**Goal:** Generate actual agent markdown from detected multi-phase workflow patterns.
-
-Completed:
-- Wired up `_build_from_workflows()` in `build_proposals()` (was defined but never called)
-- Added descriptive workflow names via `_WORKFLOW_NAMES` lookup (plan-implement-verify, diagnose-and-fix, etc.)
-- Replaced generic step descriptions with archetype-based templates (7 archetypes covering common patterns)
-- Generated agents include proper frontmatter, tool constraints, evidence, and workflow steps
-- 24 new tests covering the full pipeline
-
-### 6. Reference doc extraction (Task 2.4)
-**Status:** Done
-**Goal:** Auto-detect verbose CLAUDE.md entries and rules, extract to Tier 3 references.
-
-Implemented:
-- `_is_verbose_section()` detects CLAUDE.md sections with 4+ lines containing prose (not just bullet lists)
-- `find_demotion_candidates()` now accepts `claude_md_sections` and emits `claude_md_verbose_to_reference` candidates
-- `_build_from_demotions()` generates extraction proposals with `demotion_detail.action = "claude_md_verbose_to_reference"`
-- SKILL.md updated with three-step execution for verbose extraction: write reference doc, find section by heading, replace body with pointer
-- `_build_context_health()` includes verbose extraction in demotion candidate count
-- Oversized rule→reference detection was already working (>80 lines)
-- Memory→reference was already working
-- 18 new tests (220 total): 7 detection tests (`_is_verbose_section` + `find_demotion_candidates`), 7 proposal tests, budget/health tests
-
-### 7. Background analysis on SessionStart (Task 3.1)
-**Status:** Done (v0.2.8)
-**Goal:** Auto-trigger analysis when enough unanalyzed sessions accumulate.
-
-Shipped:
-- SessionStart hook with two commands: `check-pending.py` (nudge) + `background-analyze.py` (trigger)
-- `background-analyze.py` checks nudge level thresholds, spawns `cache-manager.py --update` as detached background process
-- Lock file prevents concurrent runs (auto-cleaned after 5-minute staleness)
-- Resets unanalyzed-sessions.log after successful analysis
-- 20 new tests (222 total)
-
-### 8. Artifact effectiveness tracking (Task 3.5)
-**Status:** Not started
-**Goal:** After deploying an artifact, track whether the triggering pattern stops appearing.
+**Why this is P1:** This is the other half of the quality problem. P0 tells us if proposals are accurate; P1 tells us if they're useful. Together they form the feedback loop that makes Forge self-improving rather than static.
 
 Scope:
-- Compare correction/pattern frequency before vs. after artifact deployment
-- Report effectiveness in `/forge` health summary
-- Suggest removing ineffective artifacts
+- Record deployment timestamp and triggering pattern ID in `applied.json`
+- On subsequent `/forge` runs, compare correction/pattern frequency before vs. after deployment
+- Report effectiveness score per artifact in `/forge` health summary
+- Flag artifacts where the triggering pattern persists (proposal didn't help → suggest removal or revision)
+- Add effectiveness stats to `analyzer-stats.json` for aggregate tracking
+
+### P2. Reduce SKILL.md fragility
+**Status:** Not started
+**Priority:** MEDIUM — the 209-line SKILL.md is a program written in prose. Ambiguity in instructions becomes runtime bugs that are hard to reproduce or test.
+**Goal:** Push deterministic logic out of SKILL.md prose and into scripts. The skill should orchestrate, not compute.
+
+**Why this is P2:** The `/forge` SKILL.md orchestrates a multi-step pipeline (resolve plugin root, run analysis, present proposals, generate artifacts, finalize) entirely through natural language instructions that the LLM interprets at runtime. Every ambiguous sentence is a potential bug that can't be caught by tests. Moving deterministic steps into scripts makes them testable and removes interpretation variance.
+
+Scope:
+- Extract proposal presentation logic into a script that formats the health table and proposal table as text (SKILL.md just prints the output)
+- Extract path validation into a script (SKILL.md calls it before writing)
+- Extract settings.json merge logic into a script (SKILL.md calls it instead of hand-merging)
+- Reduce SKILL.md to ~100 lines of orchestration: run script → show output → ask questions → write files → finalize
+- Add tests for the extracted scripts
+
+### P3. Consolidate `find_project_root()`
+**Status:** Complete (v0.3.0)
+**Priority:** LOW — minor code duplication, 4 copies of ~6 lines each. No functional risk but violates DRY.
+**Goal:** Move `find_project_root()` into `project_identity.py` and import from there.
+
+Scope:
+- Add `find_project_root(override: Optional[str] = None) -> Path` to `project_identity.py`
+- Update `check-pending.py`, `read-settings.py`, `write-settings.py`, `background-analyze.py` to import it
+- Add test coverage in `test_project_identity.py`
+
+---
+
+## Completed Work Items (archived)
+
+<details>
+<summary>Click to expand completed items</summary>
+
+### User-level data storage migration
+**Status:** Complete (v0.2.5)
+
+### Tier demotion / budget rebalancing (Task 2.5)
+**Status:** Complete
+
+### Synthetic test dataset generator
+**Status:** Complete
+
+### Stale config detection (Task 3.4)
+**Status:** Complete (v0.2.6)
+
+### Agent generation (Task 2.3)
+**Status:** Complete
+
+### Reference doc extraction (Task 2.4)
+**Status:** Complete
+
+### Background deep analysis (v0.3.1)
+**Status:** Complete (v0.3.1)
+
+### Background analysis on SessionStart (Task 3.1)
+**Status:** Complete (v0.2.8)
+
+### Real-world testing via marketplace install
+**Status:** Paused — blocked on P0. Running `/forge` on real projects without scoring evaluation means we can't measure whether proposals are good. Resume after P0 delivers measurable precision/recall.
+
+</details>
 
 ---
 
@@ -153,9 +139,7 @@ All 11 tasks shipped. See `core-docs/history.md` for details.
 | 2.7 Repeated prompt detection | ✅ Done | TF-IDF + Jaccard similarity, 4+ session threshold |
 | 2.8 Post-action detection | ✅ Done | Write/Edit→Bash pattern detection across sessions |
 
-**All Phase 2 tasks complete.** Every artifact type (skills, hooks, agents, references) is covered, plus tier promotion/demotion.
-
-### Phase 3: Proactive Intelligence (v0.3) — ~50% complete
+### Phase 3: Proactive Intelligence (v0.3) — ~60% complete
 
 | Task | Status | Notes |
 |------|--------|-------|
@@ -163,9 +147,10 @@ All 11 tasks shipped. See `core-docs/history.md` for details.
 | 3.2 Between-task ambient nudge | ➡️ Replaced | Session-start nudge system via settings levels |
 | 3.3 Session-start passive briefing | ✅ Done | Nudge levels: quiet/balanced/eager |
 | 3.4 Stale config detection | ✅ Done | Cross-references artifacts against session data; 4 matching strategies |
-| 3.5 Artifact effectiveness tracking | ❌ Not started | Track if corrections stop after artifact deployed |
+| 3.5 Artifact effectiveness tracking | ✅ Done | Track if corrections stop after artifact deployed; 12 tests |
+| 3.6 Scoring evaluation (NEW) | 🟡 Infra done | Scripts built, 17 tests; labeling + tuning pending |
 
-### Phase 4: Advanced (v1.0) — Not started
+### Phase 4: Advanced (v1.0) — Not started (blocked on Phase 3 quality track)
 
 | Task | Status | Notes |
 |------|--------|-------|
@@ -188,34 +173,10 @@ SessionStart hook auto-triggers Phase A analysis when unanalyzed sessions exceed
 
 ### Proposal builder bug fixes (v0.2.7)
 **Date:** 2026-03-30
-Ran full pipeline on synthetic data, found and fixed 4 bugs: "Auto-unknown" hook names, wrong hook commands for formatters, "unknown" memory proposal names/paths, gibberish repeated-prompt skill names. Added 8 regression tests (202 total).
-
-### Enterprise hardening + test suite
-**Date:** 2026-03-28
-Python 3.8 compat fixes, credential leak prevention, text sanitization, 68-test suite, defense-in-depth scope isolation. Version bumped to 0.2.3.
-
-### Infrastructure migration to standardized template
-**Date:** 2026-03-28
-Migrated dev infrastructure to the project template. See `core-docs/history.md` for full details.
-
-### Phase 1 + Phase 2 core features
-**Date:** 2026-03-25 to 2026-03-27
-Full analysis pipeline (config, transcripts, memory), unified `/forge` command, settings system, deep analysis mode, marketplace distribution, security hardening. See `core-docs/history.md` for detailed entries.
+Ran full pipeline on synthetic data, found and fixed 4 bugs. Added 8 regression tests.
 
 ## Backlog
-
-### ~~Transcript discovery integration tests~~ ✅
-**Status:** Done
-**Date:** 2026-03-31
-30 integration tests in `tests/test_session_discovery.py` covering all 5 strategies, edge cases, cross-project leakage prevention, and multi-strategy composition. Uses monkeypatch + tmp_path (Option A from `tests/DISCOVERY_TEST_PLAN.md`). Total test count: 232.
-
-### Scoring system evaluation and tuning
-**Priority:** Medium — the correction classifier and theme clustering work on synthetic data but haven't been validated against real-world transcripts, where corrections are ambiguous and conversations are messy. Need a way to capture ground truth from real `/forge` runs and measure precision/recall systematically.
-
-See `tests/SCORING_EVAL_PLAN.md` for detailed scope and approach.
-
-### Other backlog
-- CI/CD setup (prerequisite: test suite exists)
+- CI/CD setup (prerequisite: test suite exists ✅)
 - Cross-project aggregation (Phase 4, opt-in only)
-- `forge:cleanup` command — detect and remove orphaned `~/.claude/forge/projects/<hash>/` directories for deleted projects
-- Hash collision resilience — bump project hash from 12 to 16 hex chars if user base grows significantly
+- `forge:cleanup` command — detect and remove orphaned `~/.claude/forge/projects/<hash>/` directories
+- Hash collision resilience — bump project hash from 12 to 16 hex chars if user base grows

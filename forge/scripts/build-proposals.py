@@ -1347,7 +1347,8 @@ def _build_context_health(config: Dict,
 
 def build_proposals(config: Dict, transcripts: Dict, memory: Dict,
                     dismissed: List[Dict],
-                    pending: List[Dict]) -> Dict[str, Any]:
+                    pending: List[Dict],
+                    applied_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
     """Build the full proposal list from all analysis sources."""
     existing_skills = config.get("existing_skills", [])
     existing_agents = config.get("existing_agents", [])
@@ -1407,6 +1408,22 @@ def build_proposals(config: Dict, transcripts: Dict, memory: Dict,
     # Build context health (pass pre-computed stale proposals to avoid recomputing)
     context_health = _build_context_health(config, stale_proposals)
 
+    # Compute effectiveness of previously applied proposals
+    effectiveness = _compute_effectiveness(
+        applied_history or [], transcripts
+    )
+    if effectiveness:
+        effective_count = sum(
+            1 for e in effectiveness if e["status"] == "effective"
+        )
+        ineffective = [e for e in effectiveness if e["status"] == "ineffective"]
+        context_health["effectiveness"] = {
+            "tracked_artifacts": len(effectiveness),
+            "effective": effective_count,
+            "ineffective": len(ineffective),
+            "ineffective_details": ineffective,
+        }
+
     return {
         "proposals": final,
         "context_health": context_health,
@@ -1417,6 +1434,108 @@ def build_proposals(config: Dict, transcripts: Dict, memory: Dict,
             "sessions_analyzed": transcripts.get("sessions_analyzed", 0),
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Effectiveness tracking — did applied proposals reduce triggering patterns?
+# ---------------------------------------------------------------------------
+
+def _compute_effectiveness(
+    applied_history: List[Dict],
+    transcripts: Dict,
+) -> List[Dict]:
+    """Check if patterns that triggered applied proposals still appear.
+
+    For each applied proposal that has tracking data, compare the triggering
+    pattern against current analysis results. If the pattern is still present
+    at similar or higher frequency, the artifact may not be effective.
+
+    Returns a list of effectiveness entries for context_health.
+    """
+    if not applied_history:
+        return []
+
+    # Current correction themes from transcript analysis
+    current_corrections = {}  # type: Dict[str, Dict]
+    candidates = transcripts.get("candidates", {})
+    for corr in candidates.get("corrections", []):
+        theme_id = corr.get("theme_hash", "")
+        pattern = corr.get("pattern", corr.get("theme", ""))
+        if theme_id:
+            current_corrections[theme_id] = corr
+        if pattern:
+            # Also index by pattern text for fuzzy matching
+            current_corrections[pattern.lower()] = corr
+
+    # Current post-action patterns
+    current_post_actions = {}  # type: Dict[str, Dict]
+    for pa in candidates.get("post_actions", []):
+        cmd = pa.get("command", "")
+        if cmd:
+            current_post_actions[cmd.lower()] = pa
+
+    effectiveness = []  # type: List[Dict]
+
+    for entry in applied_history:
+        tracking = entry.get("tracking")
+        if not tracking:
+            continue
+
+        pid = entry.get("id", "unknown")
+        applied_at = entry.get("applied_at", "")
+        source = tracking.get("source", "")
+        pattern_id = tracking.get("pattern_id", "")
+        desc = entry.get("description", "")
+
+        # Check if the triggering pattern is still present
+        still_present = False
+        current_frequency = 0
+
+        if source == "correction":
+            # Check if a matching correction theme still appears
+            match = current_corrections.get(pattern_id)
+            if not match:
+                # Try fuzzy: check if description or pattern words overlap
+                # Use both description and pattern_id as search terms
+                search_texts = [t for t in [desc.lower(), pattern_id.lower()] if t]
+                for search in search_texts:
+                    for key, corr in current_corrections.items():
+                        if isinstance(key, str) and _similarity(search, key) > 0.25:
+                            match = corr
+                            break
+                    if match:
+                        break
+            if match:
+                still_present = True
+                current_frequency = match.get("total_occurrences",
+                                               match.get("occurrences", 0))
+
+        elif source == "post_action":
+            # Check if same command pattern still shows up
+            # Match by description keywords or pattern_id words against commands
+            search = (desc + " " + pattern_id).lower()
+            search_tokens = _tokenize(search)
+            for cmd, pa in current_post_actions.items():
+                cmd_tokens = _tokenize(cmd)
+                if search_tokens and cmd_tokens:
+                    overlap = len(search_tokens & cmd_tokens)
+                    if overlap >= 1:
+                        still_present = True
+                        current_frequency = pa.get("count", 0)
+                        break
+
+        status = "effective" if not still_present else "ineffective"
+
+        effectiveness.append({
+            "id": pid,
+            "description": desc,
+            "applied_at": applied_at,
+            "status": status,
+            "still_present": still_present,
+            "current_frequency": current_frequency,
+        })
+
+    return effectiveness
 
 
 # ---------------------------------------------------------------------------
@@ -1458,6 +1577,8 @@ def main():
                         help="Path to pending.json")
     parser.add_argument("--combined", type=str, default=None,
                         help="Path to combined JSON (all three analyses)")
+    parser.add_argument("--applied", type=str, default=None,
+                        help="Path to applied history JSON")
     args = parser.parse_args()
 
     if args.combined:
@@ -1474,8 +1595,11 @@ def main():
     dismissed = (_load_json_list(args.dismissed)
                  if args.dismissed else [])
     pending = _load_json_list(args.pending) if args.pending else []
+    applied = (_load_json_list(args.applied)
+               if args.applied else [])
 
-    result = build_proposals(config, transcripts, memory, dismissed, pending)
+    result = build_proposals(config, transcripts, memory, dismissed, pending,
+                             applied_history=applied)
     json.dump(result, sys.stdout, indent=2)
     sys.stdout.write("\n")
 

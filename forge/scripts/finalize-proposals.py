@@ -72,8 +72,9 @@ def _update_pending(project_root: Path, all_proposals: List[Dict]) -> None:
     _write_json_atomic(pending_path, all_proposals)
 
 
-def _record_applied(project_root: Path, applied: List[Dict]) -> None:
-    """Append applied proposals to history."""
+def _record_applied(project_root: Path, applied: List[Dict],
+                    all_proposals: List[Dict]) -> None:
+    """Append applied proposals to history with triggering pattern data."""
     if not applied:
         return
     history_path = get_user_data_dir(project_root) / "history" / "applied.json"
@@ -81,12 +82,34 @@ def _record_applied(project_root: Path, applied: List[Dict]) -> None:
     if not isinstance(existing, list):
         existing = []
     now = datetime.datetime.utcnow().isoformat() + "Z"
+
+    # Build lookup from full proposals for evidence data
+    proposal_lookup = {p.get("id"): p for p in all_proposals}
+
     for p in applied:
-        existing.append({
-            "id": p["id"],
+        pid = p["id"]
+        full = proposal_lookup.get(pid, {})
+        entry = {
+            "id": pid,
             "type": p.get("type", "unknown"),
             "applied_at": now,
-        })
+            "evidence_summary": full.get("evidence_summary", ""),
+            "description": full.get("description", ""),
+        }  # type: Dict[str, Any]
+
+        # For correction-based proposals, store pattern details for tracking
+        if full.get("source_type") in ("correction", "corrections"):
+            entry["tracking"] = {
+                "source": "correction",
+                "pattern_id": pid,
+            }
+        elif full.get("type") == "hook":
+            entry["tracking"] = {
+                "source": "post_action",
+                "pattern_id": pid,
+            }
+
+        existing.append(entry)
     _write_json_atomic(history_path, existing)
 
 
@@ -186,7 +209,7 @@ def main() -> None:
 
     # Do all bookkeeping
     _update_pending(project_root, all_proposals)
-    _record_applied(project_root, applied)
+    _record_applied(project_root, applied, all_proposals)
     _record_dismissed(project_root, dismissed)
     _update_stats(outcomes)
 

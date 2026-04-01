@@ -4,6 +4,9 @@
 # Per-user local config from /remember
 .claude/CLAUDE.local.md
 
+# Scoring evaluation labeled data (contains real user messages)
+tests/scoring_eval/labeled/*.json
+
 # Python
 __pycache__/
 *.pyc

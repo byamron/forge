@@ -633,6 +633,47 @@ Add to `/forge:status`: detect rules, skills, and CLAUDE.md entries that haven't
 ### Task 3.5: Artifact Effectiveness Tracking
 After deploying an artifact, track whether the pattern that triggered it (e.g., a correction) stops appearing in subsequent sessions. Report in `/forge:status`.
 
+### Task 3.6: Scoring Evaluation Infrastructure (NEW — added from staff review)
+
+**What:** Build tooling to measure the accuracy of the correction classifier and theme clustering against real-world data. The NLP thresholds (keyword weights, corrective classification threshold, theme confidence levels) were set by intuition and have never been validated.
+
+**Why:** This is the core product risk. Forge's value depends on proposal quality. Without measured precision/recall, every threshold is a guess. False positives erode user trust; false negatives make Forge appear useless.
+
+**Deliverables:**
+
+1. **Pair extraction script** (`tests/scoring_eval/extract_pairs.py`): Reads real JSONL transcripts, outputs assistant→user conversation pairs in a human-reviewable JSON format. Same sanitization as the pipeline (500 char truncation, control char removal).
+
+2. **Labeling guidelines** (`tests/scoring_eval/labeled/README.md`): Defines ground-truth labels (`corrective`, `confirmatory`, `new_instruction`, `followup`) and severity levels (`strong`, `moderate`, `mild`). Establishes labeling conventions for ambiguous cases.
+
+3. **Evaluation script** (`tests/scoring_eval/eval_classifier.py`): Runs `classify_response()` against labeled data. Reports precision, recall, F1 per classification. Flags specific false positives and false negatives. The labeled dataset becomes a regression test — any weight change must not degrade measured accuracy.
+
+4. **Diagnostic review script** (`tests/scoring_eval/review_diagnostics.py`): Reads cached transcript analysis from `~/.claude/forge/projects/<hash>/cache/transcripts.cache.json`. Shows all detected themes with scores, near-misses, and threshold sensitivity analysis ("at threshold 2.0, these 2 additional themes would surface").
+
+**Acceptance criteria:**
+- Extraction script produces reviewable pairs from real transcripts
+- After labeling 50-100 pairs, evaluation script reports precision >80% and recall >70% for correction detection
+- If targets not met, thresholds are tuned using the evaluation data as regression test
+- Diagnostic script shows why proposals were or weren't generated after any `/forge` run
+
+**Privacy:** Labeled data files are gitignored (contain real user messages). Evaluation runs locally only.
+
+### Task 3.7: Reduce SKILL.md Fragility (NEW — added from staff review)
+
+**What:** The `/forge` SKILL.md is a 209-line program written in natural language. Push deterministic logic into testable scripts. Keep SKILL.md as an orchestrator (~100 lines) that calls scripts and handles user interaction.
+
+**Why:** Ambiguity in prose instructions becomes runtime bugs that can't be reproduced or tested. Moving deterministic steps (formatting, validation, merging) into scripts makes them testable and removes LLM interpretation variance.
+
+**Deliverables:**
+1. **Format script** — takes proposals + context_health JSON, outputs formatted health table and proposal table as text
+2. **Path validator script** — takes proposed paths, validates against allowed locations, returns pass/fail per path
+3. **Settings merger script** — reads existing settings.json, merges new hook, writes back atomically
+4. Reduced SKILL.md (~100 lines): run scripts → show output → ask questions → write files → finalize
+
+**Acceptance criteria:**
+- Extracted scripts have full test coverage
+- SKILL.md is <120 lines
+- End-to-end `/forge` flow works identically to before
+
 ---
 
 ## Phase 4: Advanced (v1.0)
