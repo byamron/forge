@@ -12,6 +12,7 @@ directly from the profile's _transcripts/ directory.
 
 import importlib
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -617,3 +618,78 @@ class TestGeneratorConsistency:
             )
             data = json.loads(expected_path.read_text())
             assert isinstance(data, dict)
+
+
+# ===================================================================
+# Pipeline → Presentation scripts integration
+# ===================================================================
+
+class TestPipelineToPresentation:
+    """Verify that pipeline output flows correctly through format-proposals
+    and validate-paths scripts — the full path from synthetic data to
+    presentation-ready output."""
+
+    def _run_script(self, name, stdin_data):
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS_DIR / name)],
+            input=stdin_data, capture_output=True, text=True, timeout=10,
+        )
+        return proc
+
+    def test_format_proposals_on_react_ts(self, react_ts_project):
+        """Pipeline output from react-ts profile formats without errors."""
+        result = run_full_pipeline(react_ts_project)
+        proposals_json = json.dumps(result["proposals"])
+        proc = self._run_script("format-proposals.py", proposals_json)
+        assert proc.returncode == 0, f"format-proposals failed: {proc.stderr}"
+        out = json.loads(proc.stdout)
+        assert out["proposal_count"] > 0
+        assert "CLAUDE.md" in out["health_table"]
+        assert "|" in out["proposal_table"]
+
+    def test_format_proposals_on_rust_minimal(self, rust_minimal_project):
+        """Rust-minimal has only demotion proposals — verify formatting."""
+        result = run_full_pipeline(rust_minimal_project)
+        proposals_json = json.dumps(result["proposals"])
+        proc = self._run_script("format-proposals.py", proposals_json)
+        assert proc.returncode == 0, f"format-proposals failed: {proc.stderr}"
+        out = json.loads(proc.stdout)
+        assert out["proposal_count"] >= 0
+        assert "CLAUDE.md" in out["health_table"]
+
+    def test_format_proposals_on_python_corrections(self, python_corrections_project):
+        """Python-corrections has transcript-derived proposals."""
+        result = run_full_pipeline(python_corrections_project)
+        proposals_json = json.dumps(result["proposals"])
+        proc = self._run_script("format-proposals.py", proposals_json)
+        assert proc.returncode == 0, f"format-proposals failed: {proc.stderr}"
+        out = json.loads(proc.stdout)
+        # Should have proposals from correction themes
+        assert isinstance(out["proposals"], list)
+
+    def test_validate_paths_on_all_proposals(self, synthetic_profiles):
+        """Every proposal from every profile must have valid paths."""
+        for name, root in synthetic_profiles.items():
+            result = run_full_pipeline(root)
+            proposals = result["proposals"].get("proposals", [])
+            if not proposals:
+                continue
+            # Build path validation input
+            path_input = [
+                {"id": p["id"], "suggested_path": p.get("suggested_path", "")}
+                for p in proposals
+                if p.get("suggested_path")
+            ]
+            if not path_input:
+                continue
+            proc = self._run_script("validate-paths.py", json.dumps(path_input))
+            assert proc.returncode == 0, (
+                f"validate-paths failed on {name}: {proc.stderr}"
+            )
+            out = json.loads(proc.stdout)
+            # All proposals from the pipeline should have valid paths
+            for r in out["results"]:
+                assert r["valid"], (
+                    f"Profile {name}: proposal {r['id']} has invalid path "
+                    f"{r['path']}: {r.get('reason', '')}"
+                )
