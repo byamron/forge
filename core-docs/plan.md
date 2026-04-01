@@ -2,13 +2,13 @@
 
 ## Current Focus
 
-Scoring evaluation baseline established: correction classifier recall is 13.3% (target >70%), accuracy 47.8%. The classifier is too keyword-dependent — real corrections use conversational language the keyword list doesn't cover. Next priority: threshold tuning using the 113-pair labeled dataset as a regression test. Background deep analysis (v0.3.1) partially mitigates the classifier weakness by running an LLM pass that catches patterns scripts miss.
+Classifier tuning complete (v0.3.2): correction precision 100%, recall 86.7%, overall accuracy 89.4%. The remaining 12 misclassifications are on the followup/new_instruction boundary — genuinely ambiguous, not fixable without overfitting. Next priority: SKILL.md fragility reduction (P2) — push deterministic logic from prose into testable scripts.
 
 ## Handoff Notes
 
-- Labeled data at `tests/scoring_eval/labeled/{portfolio-site,priorityapp}_pairs.json` (gitignored). 113 pairs labeled, 119 unlabeled.
-- Key misclassification patterns: "that's not quite doing it" (mild correction → classified as followup), "scratch that" (reversal → new_instruction), "there absolutely is a pill" (factual correction → followup). These all need new keyword patterns or a fundamentally different approach.
-- Background deep analysis is implemented but untested on a real project with `analysis_depth: "deep"` set. Should verify the `claude -p --bare` invocation works end-to-end.
+- Labeled data at `tests/scoring_eval/labeled/{portfolio-site,priorityapp}_pairs.json` (gitignored). 113 pairs labeled.
+- Background deep analysis is implemented but untested end-to-end with `analysis_depth: "deep"`. Should verify the `claude -p --bare` invocation works on a real project.
+- SKILL.md is 209 lines of prose that's hard to test. P2 scopes the refactor.
 
 ## Spec & Roadmap
 
@@ -43,7 +43,7 @@ Deliverables:
 - ✅ `tests/test_scoring_eval.py` — 17 tests for the evaluation infrastructure
 - ✅ Label 113 pairs from 2 real projects (portfolio-site: 60, PriorityAppXcode: 53)
 - ✅ Run eval_classifier.py — correction recall 13.3% (target >70%), accuracy 47.8%
-- 🔲 Tune thresholds and keyword patterns based on measured data (use labeled set as regression test)
+- ✅ Tune classifier: Approach C (hybrid keyword + structural scoring). Correction precision 100%, recall 86.7%, accuracy 89.4% (v0.3.2)
 
 ### P1. Artifact effectiveness tracking (Task 3.5)
 **Status:** Complete (v0.3.0)

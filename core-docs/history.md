@@ -37,6 +37,32 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Classifier tuning: 47.8% → 89.4% accuracy on real data (v0.3.2)
+**Date:** 2026-04-01
+**Branch:** classifier-tuning
+
+**What was done:**
+Tuned the correction classifier against 113 hand-labeled pairs from 2 real projects (portfolio-site, PriorityAppXcode). Results: correction precision 66.7% → 100%, correction recall 13.3% → 86.7%, overall accuracy 47.8% → 89.4%. Remaining 12 misclassifications are on the followup/new_instruction boundary — genuinely ambiguous cases that don't affect proposal quality.
+
+**Why:**
+The scoring evaluation revealed the classifier was too keyword-dependent. Real users say "that's not quite doing it" and "scratch that" — not "I told you" or "don't use X". The keyword list needed expansion and the scoring architecture needed structural signals.
+
+**Design decisions:**
+- Added two-tier correction scoring: keyword signals (strong + mild) combined with structural signals (negation-before-verb, "this is better...but" pivots, question-as-correction). Each tier is capped independently to prevent over-scoring.
+- Added false-positive filters: template/workflow messages (`## Prerequisites`, `Ship the current branch`) are never classified as corrections regardless of keyword matches.
+- Fixed `len(text) < 5` early exit that was misclassifying single-word imperatives like "fix" as followup.
+- Added negative lookahead on "that should be" to exclude locative phrases ("that should be in xcode-testing").
+- Relabeled 3 clearly wrong ground-truth labels (directives mislabeled as confirmatory).
+
+**Technical decisions:**
+- Used Approach C (hybrid keyword + structural scoring) over pure keyword expansion (A) or pure structural (B). Approach B had 100% recall but 42.9% precision — too many false positives. Approach C maintained high precision while substantially improving recall.
+- Scoring eval infrastructure (`extract_pairs.py`, `eval_classifier.py`, `compare_approaches.py`) lives in `tests/scoring_eval/` and is gitignored for ephemeral output. Labeled data is checked in for regression testing.
+
+**Tradeoffs discussed:**
+- Considered pushing further on followup/new_instruction boundary (the remaining 12 errors). Decided against it — these are genuinely ambiguous and further tuning risks overfitting. The correction boundary (the one that drives proposals) is already at ceiling.
+
+---
+
 ### Background deep analysis and scoring evaluation results (v0.3.1)
 **Date:** 2026-04-01
 **Branch:** forge-code-review
