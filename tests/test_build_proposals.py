@@ -119,9 +119,11 @@ class TestDemotionProposals:
 
     def _config_with_demotions(self, claude_md_to_rule=None,
                                 rule_to_reference=None,
+                                claude_md_verbose_to_reference=None,
                                 over_budget=False):
         """Build a config dict with demotion_candidates."""
         demotable = claude_md_to_rule or []
+        verbose = claude_md_verbose_to_reference or []
         return {
             "existing_skills": [],
             "existing_agents": [],
@@ -129,12 +131,13 @@ class TestDemotionProposals:
             "demotion_candidates": {
                 "claude_md_to_rule": demotable,
                 "rule_to_reference": rule_to_reference or [],
+                "claude_md_verbose_to_reference": verbose,
                 "budget": {
                     "claude_md_lines": 300 if over_budget else 100,
                     "over_budget": over_budget,
                     "total_demotable_lines": sum(
                         len(g["entries"]) for g in demotable
-                    ),
+                    ) + sum(s.get("line_count", 0) for s in verbose),
                 },
             },
         }
@@ -260,6 +263,147 @@ class TestDemotionProposals:
         )
         result = bp.build_proposals(config, {}, {}, [], [])
         assert result["context_health"]["demotion_candidates"] == 2
+
+
+    def test_verbose_to_reference_proposal_generated(self):
+        config = self._config_with_demotions(
+            claude_md_verbose_to_reference=[{
+                "heading": "Architecture Overview",
+                "name": "architecture-overview",
+                "line_start": 10,
+                "line_end": 20,
+                "line_count": 8,
+                "content": "Detailed architecture prose...",
+            }]
+        )
+        result = bp.build_proposals(config, {}, {}, [], [])
+        demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
+        assert len(demotions) == 1
+        p = demotions[0]
+        assert p["id"] == "extract-architecture-overview-to-ref"
+        assert p["suggested_path"] == ".claude/references/architecture-overview.md"
+        assert p["demotion_detail"]["action"] == "claude_md_verbose_to_reference"
+        assert p["demotion_detail"]["heading"] == "Architecture Overview"
+        assert p["demotion_detail"]["lines_saved"] == 8
+
+    def test_verbose_high_confidence_when_8_plus_lines(self):
+        config = self._config_with_demotions(
+            claude_md_verbose_to_reference=[{
+                "heading": "Big Section",
+                "name": "big-section",
+                "line_start": 1,
+                "line_end": 15,
+                "line_count": 10,
+                "content": "Lots of content...",
+            }]
+        )
+        result = bp.build_proposals(config, {}, {}, [], [])
+        demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
+        assert demotions[0]["confidence"] == "high"
+
+    def test_verbose_medium_confidence_when_under_8_lines(self):
+        config = self._config_with_demotions(
+            claude_md_verbose_to_reference=[{
+                "heading": "Small Section",
+                "name": "small-section",
+                "line_start": 1,
+                "line_end": 8,
+                "line_count": 5,
+                "content": "Some content...",
+            }]
+        )
+        result = bp.build_proposals(config, {}, {}, [], [])
+        demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
+        assert demotions[0]["confidence"] == "medium"
+
+    def test_verbose_over_budget_boosts_impact(self):
+        config = self._config_with_demotions(
+            claude_md_verbose_to_reference=[{
+                "heading": "Detail",
+                "name": "detail",
+                "line_start": 1,
+                "line_end": 10,
+                "line_count": 6,
+                "content": "...",
+            }],
+            over_budget=True,
+        )
+        result = bp.build_proposals(config, {}, {}, [], [])
+        demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
+        assert demotions[0]["impact"] == "high"
+
+    def test_verbose_pointer_in_demotion_detail(self):
+        config = self._config_with_demotions(
+            claude_md_verbose_to_reference=[{
+                "heading": "Deploy Process",
+                "name": "deploy-process",
+                "line_start": 5,
+                "line_end": 15,
+                "line_count": 7,
+                "content": "...",
+            }]
+        )
+        result = bp.build_proposals(config, {}, {}, [], [])
+        demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
+        pointer = demotions[0]["demotion_detail"]["pointer"]
+        assert ".claude/references/deploy-process.md" in pointer
+
+    def test_duplicate_headings_get_unique_ids_and_paths(self):
+        config = self._config_with_demotions(
+            claude_md_verbose_to_reference=[{
+                "heading": "Architecture",
+                "name": "architecture",
+                "line_start": 5,
+                "line_end": 15,
+                "line_count": 8,
+                "content": "First section...",
+            }, {
+                "heading": "Architecture",
+                "name": "architecture",
+                "line_start": 30,
+                "line_end": 40,
+                "line_count": 8,
+                "content": "Second section...",
+            }]
+        )
+        result = bp.build_proposals(config, {}, {}, [], [])
+        demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
+        ids = [p["id"] for p in demotions]
+        paths = [p["suggested_path"] for p in demotions]
+        assert len(ids) == 2
+        assert len(set(ids)) == 2  # all unique
+        assert "extract-architecture-to-ref" in ids
+        assert "extract-architecture-to-ref-2" in ids
+        # Paths must also be unique to prevent overwriting
+        assert len(set(paths)) == 2
+        assert ".claude/references/architecture.md" in paths
+        assert ".claude/references/architecture-2.md" in paths
+
+    def test_context_health_counts_verbose_demotions(self):
+        config = self._config_with_demotions(
+            claude_md_verbose_to_reference=[{
+                "heading": "A",
+                "name": "a",
+                "line_start": 1,
+                "line_end": 10,
+                "line_count": 6,
+                "content": "...",
+            }, {
+                "heading": "B",
+                "name": "b",
+                "line_start": 15,
+                "line_end": 25,
+                "line_count": 8,
+                "content": "...",
+            }],
+            rule_to_reference=[{
+                "path": ".claude/rules/big.md",
+                "filename": "big",
+                "line_count": 150,
+            }],
+        )
+        result = bp.build_proposals(config, {}, {}, [], [])
+        assert result["context_health"]["demotion_candidates"] == 3
 
 
 class TestDemotionImpactScoring:

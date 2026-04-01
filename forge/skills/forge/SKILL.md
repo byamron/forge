@@ -172,7 +172,11 @@ Generate the artifact content yourself following the templates from the referenc
      - Write the new rule file to `suggested_path` with `suggested_content` (refine the draft into production-quality rule content with proper paths frontmatter).
      - Read CLAUDE.md and remove the lines listed in `demotion_detail.entries` (match by content, not line number — lines may have shifted).
      - Insert `demotion_detail.pointer` in CLAUDE.md where the first removed entry was.
-  3. If `action` is `rule_to_reference`:
+  3. If `action` is `claude_md_verbose_to_reference`:
+     - Write a new reference doc at `suggested_path` with the section content from `suggested_content` (refine into a well-structured reference doc with headings).
+     - Read CLAUDE.md and find the `## <heading>` line matching `demotion_detail.heading` (exact match). Use `demotion_detail.line_start` as a hint if multiple headings match — pick the one nearest that line number. If the heading is not found (already moved or renamed), skip this proposal and tell the user.
+     - Replace the section's body (keep the `## heading` line) with a one-line pointer: `demotion_detail.pointer`.
+  4. If `action` is `rule_to_reference`:
      - Read the source rule file at `demotion_detail.source_file`.
      - Extract verbose sections (detailed examples, long explanations) to a new reference doc at `suggested_path`.
      - Replace the extracted sections in the rule with `demotion_detail.pointer`.
