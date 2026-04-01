@@ -5,7 +5,10 @@ Checks if enough unanalyzed sessions have accumulated and, if so,
 spawns cache-manager.py --update as a fully detached background process.
 Returns immediately so the hook does not block session start.
 
-The background analysis is script-only (Phase A) — zero LLM token cost.
+Script analysis (Phase A) is always zero LLM token cost. If the user has
+analysis_depth set to "deep", a follow-up deep analysis pass runs via
+`claude -p --bare --model sonnet` after Phase A completes, caching the
+result for the next `/forge` invocation.
 
 Usage (hook mode — returns immediately):
     python3 background-analyze.py [--plugin-root /path] [--project-root /path]
@@ -17,13 +20,14 @@ Usage (internal — runs analysis synchronously, called by the spawned subproces
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
-from project_identity import get_user_data_dir, resolve_user_file
+from project_identity import find_project_root, get_user_data_dir, resolve_user_file
 
 
 # Reuse nudge level thresholds — if the user configured their nudge level,
@@ -40,30 +44,37 @@ LOCK_STALENESS_SECONDS = 300
 # Maximum time for the background analysis subprocess
 ANALYSIS_TIMEOUT_SECONDS = 60
 
+# Maximum time for the deep analysis (LLM) subprocess
+DEEP_ANALYSIS_TIMEOUT_SECONDS = 120
 
-def find_project_root(override: Optional[str] = None) -> Path:
-    if override:
-        return Path(override).resolve()
-    current = Path.cwd().resolve()
-    while current != current.parent:
-        if (current / ".git").exists() or (current / ".claude").exists():
-            return current
-        current = current.parent
-    return Path.cwd().resolve()
+# Maximum conversation pairs to send to deep analysis
+DEEP_MAX_PAIRS = 30
 
 
-def load_nudge_level(project_root: Path) -> str:
+def _load_settings(project_root: Path) -> Dict[str, Any]:
+    """Load Forge settings, returning empty dict on failure."""
     settings_path = resolve_user_file(project_root, "settings.json")
     if settings_path.is_file():
         try:
             with open(settings_path, "r") as f:
-                data = json.load(f)
-            level = data.get("nudge_level", "balanced")
-            if level in LEVEL_THRESHOLDS:
-                return level
+                return json.load(f)
         except (json.JSONDecodeError, OSError):
             pass
+    return {}
+
+
+def load_nudge_level(project_root: Path) -> str:
+    data = _load_settings(project_root)
+    level = data.get("nudge_level", "balanced")
+    if level in LEVEL_THRESHOLDS:
+        return level
     return "balanced"
+
+
+def load_analysis_depth(project_root: Path) -> str:
+    data = _load_settings(project_root)
+    depth = data.get("analysis_depth", "standard")
+    return depth if depth in ("standard", "deep") else "standard"
 
 
 def count_unanalyzed_sessions(user_data_dir: Path) -> int:
@@ -96,6 +107,142 @@ def is_locked(user_data_dir: Path) -> bool:
         return False
 
 
+def _read_cached_proposals(user_data_dir: Path) -> Dict[str, Any]:
+    """Read the cached proposals JSON from the cache directory."""
+    # Cache dir is a sibling of user_data_dir: .../cache/proposals.json
+    cache_dir = user_data_dir / "cache"
+    proposals_path = cache_dir / "proposals.json"
+    if proposals_path.is_file():
+        try:
+            return json.loads(proposals_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+    return {}
+
+
+def _read_cached_transcripts(user_data_dir: Path) -> Dict[str, Any]:
+    """Read the cached transcript analysis result."""
+    cache_dir = user_data_dir / "cache"
+    transcripts_path = cache_dir / "transcripts.json"
+    if transcripts_path.is_file():
+        try:
+            data = json.loads(transcripts_path.read_text(encoding="utf-8"))
+            return data.get("result", {})
+        except (OSError, json.JSONDecodeError):
+            pass
+    return {}
+
+
+def _build_deep_prompt(
+    proposals: List[Dict[str, Any]],
+    pairs: List[Dict[str, Any]],
+    agent_prompt_path: Path,
+) -> Optional[str]:
+    """Build the prompt for the deep analysis LLM call."""
+    if not agent_prompt_path.is_file():
+        return None
+
+    agent_md = agent_prompt_path.read_text(encoding="utf-8")
+    # Strip YAML frontmatter
+    if agent_md.startswith("---"):
+        end = agent_md.find("---", 3)
+        if end != -1:
+            agent_md = agent_md[end + 3:].strip()
+
+    # Truncate pairs to limit
+    pairs_sample = pairs[:DEEP_MAX_PAIRS]
+
+    prompt = (
+        f"{agent_md}\n\n"
+        f"## Input: Script proposals\n\n"
+        f"```json\n{json.dumps(proposals, indent=2)}\n```\n\n"
+        f"## Input: Conversation pairs sample\n\n"
+        f"```json\n{json.dumps(pairs_sample, indent=2)}\n```\n\n"
+        f"Analyze the conversation pairs and return a JSON array of additional proposals. "
+        f"Output ONLY a valid JSON array — no markdown fences, no explanation."
+    )
+    return prompt
+
+
+def _run_deep_analysis(
+    root: Path,
+    plugin_root: str,
+    user_data_dir: Path,
+) -> None:
+    """Run deep analysis via `claude -p --bare --model sonnet`.
+
+    Reads cached script proposals and transcript pairs, builds a prompt,
+    invokes the LLM, and caches the result as deep-analysis.json.
+    """
+    # Check if claude CLI is available
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        return
+
+    # Read cached data from script analysis
+    proposals_data = _read_cached_proposals(user_data_dir)
+    proposals = proposals_data.get("proposals", [])
+
+    transcripts = _read_cached_transcripts(user_data_dir)
+    pairs = transcripts.get("conversation_pairs_sample", [])
+    if not pairs:
+        return
+
+    # Build the prompt
+    agent_path = Path(plugin_root) / "agents" / "session-analyzer.md"
+    prompt = _build_deep_prompt(proposals, pairs, agent_path)
+    if not prompt:
+        return
+
+    deep_cache_path = user_data_dir / "cache" / "deep-analysis.json"
+    try:
+        proc = subprocess.run(
+            [
+                claude_bin, "-p",
+                "--bare",
+                "--model", "sonnet",
+                "--effort", "low",
+                "--no-session-persistence",
+                "--output-format", "text",
+            ],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=DEEP_ANALYSIS_TIMEOUT_SECONDS,
+            cwd=str(root),
+        )
+
+        if proc.returncode != 0:
+            return
+
+        # Parse the LLM output — expect a JSON array
+        output = proc.stdout.strip()
+        # Strip markdown fences if the LLM wrapped them anyway
+        if output.startswith("```"):
+            lines = output.splitlines()
+            # Remove first and last fence lines
+            lines = [l for l in lines if not l.startswith("```")]
+            output = "\n".join(lines).strip()
+
+        deep_proposals = json.loads(output)
+        if not isinstance(deep_proposals, list):
+            return
+
+        # Cache the result
+        result = {
+            "proposals": deep_proposals,
+            "timestamp": time.time(),
+            "pairs_analyzed": len(pairs),
+            "source": "background_deep_analysis",
+        }
+        deep_cache_path.parent.mkdir(parents=True, exist_ok=True)
+        deep_cache_path.write_text(
+            json.dumps(result, indent=2), encoding="utf-8"
+        )
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
+        pass
+
+
 def _run_analysis(root: Path, plugin_root: str, user_data_dir: Path) -> None:
     """Run analysis synchronously. Called in the detached background subprocess."""
     lock_path = user_data_dir / "analysis.lock"
@@ -124,6 +271,11 @@ def _run_analysis(root: Path, plugin_root: str, user_data_dir: Path) -> None:
                 log_path.write_text("", encoding="utf-8")
             except OSError:
                 pass
+
+            # If deep mode is enabled, run LLM analysis pass
+            if load_analysis_depth(root) == "deep":
+                _run_deep_analysis(root, plugin_root, user_data_dir)
+
     except (subprocess.TimeoutExpired, OSError):
         pass
     finally:

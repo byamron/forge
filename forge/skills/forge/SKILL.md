@@ -50,23 +50,25 @@ The output is a JSON object with:
 - `context_health`: Summary of context budget and artifact counts
 - `stats`: How many sessions were analyzed, candidates found, etc.
 - `conversation_pairs_sample`: Recent conversation pairs (used by deep mode)
+- `deep_analysis_cache`: Cached deep analysis results from background analysis (may be null)
 
-## Step 1b: Start deep analysis (deep mode only)
+## Step 1b: Deep analysis
 
-**Skip this step if the analysis mode is standard.**
+Check for cached deep analysis results from background analysis:
 
-If deep mode is active, spawn the `session-analyzer` agent in the background to find contextual patterns:
+1. **Cached results available** (`deep_analysis_cache` is not null): Merge its `proposals` into the script proposals using the merge rules below. **No LLM call needed — the work was already done in the background.**
 
-1. Prepare the agent's input by combining:
-   - The `proposals` array from Step 1 (so the agent knows what scripts already found)
-   - The `context_health` from Step 1
-   - The `conversation_pairs_sample` from Step 1
+2. **No cache, deep mode active** (`deep_analysis_cache` is null AND deep mode from flag or settings):
+   - Prepare the agent's input by combining the `proposals`, `context_health`, and `conversation_pairs_sample` from Step 1
+   - Use the Agent tool with `run_in_background: true` to spawn the `session-analyzer` agent (subagent_type: `session-analyzer`). In the prompt, include the combined input data and ask it to return a JSON array of additional proposals
+   - **Continue to Step 2 immediately** — do not wait. The user will review script proposals while deep analysis runs.
 
-2. Use the Agent tool with `run_in_background: true` to spawn the `session-analyzer` agent (subagent_type: `session-analyzer`). In the prompt, include:
-   - The combined input data above
-   - Ask it to return a JSON array of additional proposals
+3. **No cache, standard mode**: skip this step entirely.
 
-3. Continue to Step 2 immediately — do not wait for the agent.
+**Deep proposal merge rules** (used whenever deep proposals are available):
+- Deep proposals have `"source": "deep_analysis"` — append them after script proposals
+- If a deep proposal describes the same pattern as a script proposal (same `id` or clearly overlapping evidence), keep the script proposal and enrich its `evidence_summary` with the deep insight instead of showing a duplicate
+- Sort the merged list by impact (high first)
 
 ## Step 2: Present results
 
@@ -85,29 +87,17 @@ Using the `context_health` from Step 1, show a brief health table:
 | Stale artifacts  | 0     | ✓      |
 ```
 
-Use ⚠ for any metric with gaps or issues. If `context_health.over_budget` is true, mark CLAUDE.md with ⚠. If `context_health.stale_artifacts_count` > 0, mark Stale artifacts with ⚠. If `context_health.demotion_candidates` > 0, add a row showing the count with ⚠.
+Use ⚠ for any metric with gaps or issues. If `context_health.over_budget` is true, mark CLAUDE.md with ⚠. If `context_health.stale_artifacts_count` > 0, mark Stale artifacts with ⚠. If `context_health.demotion_candidates` > 0, add a row showing the count with ⚠. If `context_health.effectiveness` exists and has `ineffective` > 0, add a row: "Ineffective artifacts | N | ⚠" and note which artifacts are still seeing their triggering patterns (from `effectiveness.ineffective_details`).
 
-### Deep mode: wait for background analysis
-
-If deep mode is active and the background agent has not yet returned:
-
-Show this message:
-
-> Deep analysis running in the background — keep working, I'll surface results when ready.
-> Prefer instant results? Run `/forge:settings` to switch to standard mode.
-
-Wait for the background agent to complete. When it returns, merge its proposals with the script proposals from Step 1:
-- Deep proposals have `"source": "deep_analysis"` — append them after script proposals
-- If a deep proposal describes the same pattern as a script proposal (same `id` or clearly overlapping evidence), keep the script proposal and enrich its `evidence_summary` with the deep insight instead of showing a duplicate
-- Sort the merged list by impact (high first)
-
-### Present proposals
-
-If there are no proposals (from scripts, or from scripts + deep analysis combined), tell the user their setup looks good. Stop.
+### Present script proposals first
 
 **Do not mention filtering, noise removal, or data from other projects.** Only present proposals that are relevant to this project. If the analysis data contains irrelevant entries, silently skip them.
 
-Present the proposals in a **single summary table** with evidence inline:
+If there are no script proposals:
+- If deep analysis is running (Step 1b case 2): show "Analyzing session patterns..." and wait for the deep agent to complete. When it returns, merge and present its proposals below. If the deep agent also returns no proposals, tell the user their setup looks good and stop.
+- If no deep analysis is running: tell the user their setup looks good. Stop.
+
+Present script proposals in a **single summary table** with evidence inline:
 
 ```
 | # | Impact | Type | Proposal | Evidence |
@@ -130,6 +120,14 @@ Options per question:
 If there are more than 4 proposals, batch them into multiple AskUserQuestion calls of up to 4 each.
 
 If `AskUserQuestion` is not available, fall back to presenting the options conversationally and waiting for the user's response.
+
+### Append deep proposals when ready (deep mode only)
+
+After the user finishes reviewing script proposals, check if the background deep analysis agent has completed:
+
+- **If completed**: merge its proposals using the merge rules from Step 1b. If there are new proposals (not duplicates of script proposals), present them in a second table and AskUserQuestion batch, prefixed with "Deep analysis found additional patterns:".
+- **If still running**: wait for it. The user opted into deep mode — they expect deep results. Show "Finishing deep analysis..." while waiting.
+- **If no deep analysis was running** (cached results were already merged in Step 1b, or standard mode): skip this.
 
 After receiving decisions, show the draft artifact content (in a code block with file path) **only for proposals the user approved or wants to modify**. Do not show drafts for skipped or dismissed proposals.
 

@@ -154,8 +154,32 @@ _MILD_CORRECTION = [
     (re.compile(r"\binstead[,.]?\s", re.I), 0.15),
     (re.compile(r"\bswitch to\b", re.I), 0.15),
     (re.compile(r"\bwrong\b", re.I), 0.15),
-    (re.compile(r"\bshould be\b", re.I), 0.15),
+    (re.compile(r"\bthat should be\b", re.I), 0.15),
+    (re.compile(r"\bthis should be\b", re.I), 0.15),
     (re.compile(r"\bnot that\b", re.I), 0.15),
+    # Reversal / negation patterns (from eval: "scratch that", "not quite")
+    (re.compile(r"\bscratch that\b", re.I), 0.3),
+    (re.compile(r"\bnot quite\b", re.I), 0.2),
+    (re.compile(r"\bdo what you had before\b", re.I), 0.3),
+    (re.compile(r"\brevert\b", re.I), 0.2),
+    (re.compile(r"\bundo\b", re.I), 0.2),
+    (re.compile(r"\badd .+ back\b", re.I), 0.2),
+    # Frustration / dealbreaker (from eval: "that's a dealbreaker")
+    (re.compile(r"\bdealbreaker\b", re.I), 0.3),
+    (re.compile(r"\bnot sure why you\b", re.I), 0.1),
+    (re.compile(r"\bwhy did you\b", re.I), 0.2),
+    (re.compile(r"\bwhy would you\b", re.I), 0.2),
+    # Factual pushback (from eval: "there absolutely is a X", "what do you mean")
+    (re.compile(r"\bthere (?:absolutely|definitely|clearly) is\b", re.I), 0.25),
+    (re.compile(r"\bwhat do you mean\b", re.I), 0.2),
+    # Approach rejection (from eval: "this is the wrong approach")
+    (re.compile(r"\bwrong approach\b", re.I), 0.35),
+    (re.compile(r"\bnot the (?:right|correct) (?:way|approach)\b", re.I), 0.3),
+    (re.compile(r"\btoo subtle\b", re.I), 0.15),
+    (re.compile(r"\btoo much\b", re.I), 0.1),
+    (re.compile(r"\bi (?:also )?requested?\b", re.I), 0.15),
+    # Explicit reframing of assistant's output (only "reframe" — "remove" is too ambiguous)
+    (re.compile(r"\breframe\b", re.I), 0.15),
 ]
 _CONFIRMATORY = [
     re.compile(r"^(?:yes|yeah|yep|ok|okay|sure|perfect|great|thanks|thank you|looks? good|lgtm|nice|awesome|exactly)[.!,\s]*$", re.I),
@@ -271,19 +295,42 @@ def classify_response(
 
     total = keyword_score + action_ref_score + imperative_score
 
-    if total >= 0.25:
+    if total >= 0.15:
         return ("corrective", min(total, 1.0))
 
     # --- Not corrective: new instruction or followup? ---
-    if assistant_text:
-        user_tokens = set(tokenize(text))
-        asst_tokens = set(tokenize(assistant_text[:500]))
-        if user_tokens and asst_tokens:
-            overlap = len(user_tokens & asst_tokens) / max(len(user_tokens), 1)
-            if overlap < 0.1:
-                return ("new_instruction", 0.0)
+    words = text.split()
+    word_count = len(words)
 
-    return ("followup", 0.0)
+    # Multi-line messages with headers are instructions (skill invocations, etc.)
+    if "\n" in text and (text.startswith("#") or text.startswith("##")):
+        return ("new_instruction", 0.0)
+
+    # Very short continuation signals
+    _CONTINUE_SIGNALS = {"resume", "retry", "continue", "go ahead", "proceed"}
+    if text_lower.strip().rstrip(".!") in _CONTINUE_SIGNALS:
+        return ("followup", 0.0)
+
+    # Short confirmations / status updates (< 5 words, no verb-leading imperative)
+    if word_count <= 4:
+        first_lower = words[0].lower().rstrip(",.")
+        # Imperative verbs → new instruction ("fix this", "add X", "run Y")
+        _IMPERATIVE_STARTS = {
+            "fix", "add", "remove", "delete", "update", "change", "create",
+            "run", "build", "merge", "push", "ship", "deploy", "scan",
+            "make", "check", "review", "open", "close", "get", "set",
+        }
+        if first_lower in _IMPERATIVE_STARTS:
+            return ("new_instruction", 0.0)
+        # Otherwise short non-imperative → followup ("yes", "xcode is closed")
+        return ("followup", 0.0)
+
+    # Questions without correction keywords → followup
+    if text.rstrip().endswith("?") and keyword_score == 0:
+        return ("followup", 0.0)
+
+    # Longer messages with action directives → new instruction
+    return ("new_instruction", 0.0)
 
 
 # ---------------------------------------------------------------------------

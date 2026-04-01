@@ -26,22 +26,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from project_identity import get_user_data_dir, resolve_user_file
-
-
-# ---------------------------------------------------------------------------
-# Project root discovery
-# ---------------------------------------------------------------------------
-
-def find_project_root(override: Optional[str] = None) -> Path:
-    if override:
-        return Path(override).resolve()
-    current = Path.cwd().resolve()
-    while current != current.parent:
-        if (current / ".git").exists() or (current / ".claude").exists():
-            return current
-        current = current.parent
-    return Path.cwd().resolve()
+from project_identity import find_project_root, get_user_data_dir, resolve_user_file
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +378,7 @@ def _build_proposals_from_cache(root: Path,
 
     dismissed_path = resolve_user_file(root, "dismissed.json")
     pending_path = resolve_user_file(root, "proposals/pending.json")
+    applied_path = resolve_user_file(root, "history/applied.json")
 
     cmd = [
         "python3", str(script_path),
@@ -402,6 +388,8 @@ def _build_proposals_from_cache(root: Path,
         cmd.extend(["--dismissed", str(dismissed_path)])
     if pending_path.is_file():
         cmd.extend(["--pending", str(pending_path)])
+    if applied_path.is_file():
+        cmd.extend(["--applied", str(applied_path)])
 
     try:
         proc = subprocess.run(
@@ -423,6 +411,26 @@ def _extract_pairs_sample(root: Path) -> List[Dict[str, Any]]:
     return result.get("conversation_pairs_sample", [])
 
 
+def _read_deep_analysis_cache(root: Path) -> Optional[Dict[str, Any]]:
+    """Read cached deep analysis results from background-analyze.py.
+
+    Returns the cache dict with 'proposals' and 'timestamp', or None.
+    The cache is considered stale after 24 hours.
+    """
+    deep_path = cache_dir(root) / "deep-analysis.json"
+    if not deep_path.is_file():
+        return None
+    try:
+        import time
+        data = json.loads(deep_path.read_text(encoding="utf-8"))
+        ts = data.get("timestamp", 0)
+        if time.time() - ts > 86400:  # 24 hours
+            return None
+        return data
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, Any]:
     """Get proposals: use cached if available, otherwise build fresh.
 
@@ -432,6 +440,9 @@ def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, An
     # First, ensure analysis cache is fresh
     statuses = update_cache(root, plugin_root)
     any_updated = any(s == "updated" for s in statuses.values())
+
+    # Check for cached deep analysis results from background-analyze.py
+    deep_cache = _read_deep_analysis_cache(root)
 
     # Return cached proposals only if no analysis was refreshed
     proposals_path = cache_dir(root) / "proposals.json"
@@ -443,6 +454,7 @@ def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, An
             if isinstance(proposals, dict) and "proposals" in proposals:
                 proposals["cache_status"] = statuses
                 proposals["conversation_pairs_sample"] = _extract_pairs_sample(root)
+                proposals["deep_analysis_cache"] = deep_cache
                 return proposals
         except (OSError, json.JSONDecodeError):
             pass
@@ -456,12 +468,14 @@ def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, An
         if isinstance(proposals, dict):
             proposals["cache_status"] = statuses
             proposals["conversation_pairs_sample"] = _extract_pairs_sample(root)
+            proposals["deep_analysis_cache"] = deep_cache
             return proposals
     except (OSError, json.JSONDecodeError):
         pass
 
     return {"proposals": [], "context_health": {}, "cache_status": statuses,
-            "conversation_pairs_sample": []}
+            "conversation_pairs_sample": [],
+            "deep_analysis_cache": None}
 
 
 # ---------------------------------------------------------------------------

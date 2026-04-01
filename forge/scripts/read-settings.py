@@ -12,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-from project_identity import resolve_user_file
+from project_identity import find_project_root, resolve_user_file
 
 DEFAULTS = {
     "nudge_level": "balanced",
@@ -35,15 +35,6 @@ DEPTH_DESCRIPTIONS = {
     "standard": "Script-only analysis. Fast, zero token cost.",
     "deep": "Scripts + background LLM pass. Finds contextual patterns scripts can't detect. Uses ~5K tokens.",
 }
-
-
-def find_project_root() -> Path:
-    current = Path.cwd().resolve()
-    while current != current.parent:
-        if (current / ".git").exists() or (current / ".claude").exists():
-            return current
-        current = current.parent
-    return Path.cwd().resolve()
 
 
 def load_settings(project_root: Path) -> dict:

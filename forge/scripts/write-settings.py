@@ -15,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 
-from project_identity import get_user_data_dir
+from project_identity import find_project_root, get_user_data_dir
 
 VALID_LEVELS = ("quiet", "balanced", "eager")
 VALID_DEPTHS = ("standard", "deep")
@@ -30,15 +30,6 @@ DEPTH_DESCRIPTIONS = {
     "standard": "Script-only analysis. Fast, zero token cost.",
     "deep": "Scripts + background LLM pass. Finds contextual patterns scripts can't detect.",
 }
-
-
-def find_project_root() -> Path:
-    current = Path.cwd().resolve()
-    while current != current.parent:
-        if (current / ".git").exists() or (current / ".claude").exists():
-            return current
-        current = current.parent
-    return Path.cwd().resolve()
 
 
 def main():

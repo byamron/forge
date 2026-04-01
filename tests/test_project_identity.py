@@ -161,3 +161,37 @@ class TestResolveUserFile:
         assert result.is_file()
         assert result.read_text() == "[]"
         assert not legacy_file.exists()
+
+
+class TestFindProjectRoot:
+    """Test the consolidated find_project_root function."""
+
+    def test_override_returns_resolved_path(self, tmp_path):
+        """Override string is resolved to an absolute Path."""
+        result = pi.find_project_root(str(tmp_path))
+        assert result == tmp_path.resolve()
+
+    def test_finds_git_directory(self, tmp_path, monkeypatch):
+        """Walks up to find .git marker."""
+        (tmp_path / ".git").mkdir()
+        subdir = tmp_path / "src" / "deep"
+        subdir.mkdir(parents=True)
+        monkeypatch.chdir(subdir)
+        result = pi.find_project_root()
+        assert result == tmp_path
+
+    def test_finds_claude_directory(self, tmp_path, monkeypatch):
+        """Walks up to find .claude marker."""
+        (tmp_path / ".claude").mkdir()
+        subdir = tmp_path / "nested"
+        subdir.mkdir()
+        monkeypatch.chdir(subdir)
+        result = pi.find_project_root()
+        assert result == tmp_path
+
+    def test_falls_back_to_cwd(self, tmp_path, monkeypatch):
+        """Returns cwd when no marker is found."""
+        # tmp_path has no .git or .claude
+        monkeypatch.chdir(tmp_path)
+        result = pi.find_project_root()
+        assert result == tmp_path.resolve()

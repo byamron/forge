@@ -18,22 +18,13 @@ import json
 import sys
 from pathlib import Path
 
-from project_identity import get_user_data_dir, resolve_user_file
+from project_identity import find_project_root, get_user_data_dir, resolve_user_file
 
 LEVEL_THRESHOLDS = {
     "quiet": None,
     "balanced": 5,
     "eager": 2,
 }
-
-
-def find_project_root() -> Path:
-    current = Path.cwd().resolve()
-    while current != current.parent:
-        if (current / ".git").exists() or (current / ".claude").exists():
-            return current
-        current = current.parent
-    return Path.cwd().resolve()
 
 
 def load_nudge_level(project_root: Path) -> str:

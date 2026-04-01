@@ -37,6 +37,100 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Background deep analysis and scoring evaluation results (v0.3.1)
+**Date:** 2026-04-01
+**Branch:** forge-code-review
+
+**What was done:**
+1. **Background deep analysis** — When `analysis_depth: "deep"` is set, the SessionStart background process now runs an LLM pass (`claude -p --bare --model sonnet`) after Phase A scripts complete. Results are cached as `deep-analysis.json` (24-hour TTL) so the next `/forge` invocation has deep results instantly — no `--deep` flag needed.
+2. **Scoring evaluation on real data** — Ran the evaluation infrastructure against 2 real projects (portfolio-site: 129 pairs, PriorityAppXcode: 103 pairs). Labeled 113 pairs manually. Results: correction recall 13.3% (target >70%), overall accuracy 47.8%. Confirmed the classifier is too keyword-dependent — real corrections use conversational language ("that's not quite doing it", "scratch that") that the keyword list doesn't cover.
+3. **SKILL.md deep mode UX** — Rewrote the deep analysis flow: script proposals are shown first (user reviews while deep agent runs in background), deep proposals appended when ready. If deep agent is still running after script review, waits for it (user opted into deep — deliver the results). Zero-proposal edge case handled.
+
+**Why:**
+Staff review identified two gaps: (a) deep analysis only ran interactively, meaning every `/forge --deep` invocation paid the LLM cost and wait time; (b) the classifier had never been validated against real data. Background deep caching solves (a); the eval results quantify (b) and provide the labeled dataset for threshold tuning.
+
+**Design decisions:**
+- Deep analysis runs on SessionStart (not SessionEnd) because SessionEnd processes get killed when the user closes the terminal.
+- Uses `claude -p --bare --model sonnet --effort low --no-session-persistence` to minimize cost and avoid recursive Forge invocation.
+- UX follows "Option C" — script proposals fill the wait time naturally. The only blocking wait is when there are zero script proposals and the deep agent is still running (least common case).
+
+**Technical decisions:**
+- `background-analyze.py` reads cached proposals and transcript pairs from the script analysis pass, builds the session-analyzer prompt inline, and pipes it to `claude -p` via stdin. No temp files needed.
+- `cache-manager.py` exposes `_read_deep_analysis_cache()` with 24-hour TTL — stale deep results are ignored rather than served.
+- `shutil.which("claude")` gates the deep pass — if the CLI isn't available, it silently skips.
+
+**Tradeoffs discussed:**
+- Considered Option A (show script proposals, tell user deep results cached for next run) — rejected as disjointed UX. Option B (two-phase: show scripts, exit, background deep, notify later) — rejected for same run-twice problem. Option C (fill wait with script review) won because it's non-blocking in the common case and respects the user's explicit opt-in to deep mode.
+- Considered running deep on SessionEnd — rejected because the user may close the terminal. SessionStart gives the full session duration for the background process to complete.
+
+---
+
+### Artifact effectiveness tracking (Task 3.5, v0.3.0)
+**Date:** 2026-03-31
+**Branch:** forge-code-review
+
+**What was done:**
+Implemented artifact effectiveness tracking. When a proposal is applied, the triggering pattern details are recorded in `applied.json`. On subsequent `/forge` runs, `build-proposals.py` checks if the triggering pattern still appears in current transcript analysis. Reports per-artifact effectiveness (effective/ineffective) in `context_health`. SKILL.md updated to show ineffective artifacts with a warning.
+
+**Why:**
+Task 3.5 / P1 from staff review — without knowing if proposals actually help, Forge can't learn or self-improve. This closes the feedback loop: P0 tells us if proposals are accurate; P1 tells us if they're useful.
+
+**Design decisions:**
+- Tracking data is recorded at apply-time in `finalize-proposals.py` rather than stored separately — keeps all applied-proposal data in one place.
+- Effectiveness is computed at analysis-time in `build-proposals.py` rather than a separate script — avoids another subprocess call and the data is already available.
+- Fuzzy matching uses the existing `_similarity()` (Jaccard) to handle renamed or slightly different patterns between analysis runs.
+
+**Technical decisions:**
+- Used `_tokenize()` (set-based) for post-action matching against command strings, since proposal IDs don't contain the actual command text.
+- Lowered Jaccard threshold to 0.25 for effectiveness fuzzy matching (vs 0.3 for dedup) because we want to catch pattern persistence even with slight rephrasing.
+- Effectiveness is only reported when `applied_history` has entries with `tracking` data — no noise for old entries applied before this feature.
+
+**Tradeoffs discussed:**
+- Considered time-based windowing (only check sessions after apply date) vs. checking all current sessions. Chose all-current for simplicity — if the pattern is gone now, the artifact is working regardless of when it was deployed.
+- 12 new tests (312 total).
+
+---
+
+### Consolidate find_project_root (v0.3.0)
+**Date:** 2026-03-31
+**Branch:** forge-code-review
+
+**What was done:**
+Moved `find_project_root()` from 5 duplicate copies (check-pending, read-settings, write-settings, background-analyze, cache-manager) into `project_identity.py`. All callers now import from the single source. Added 4 tests.
+
+**Why:**
+P3 from staff review — minor DRY violation, 5 copies of the same 6-line function.
+
+**Technical decisions:**
+- Function signature matches the most complete version (from background-analyze): `find_project_root(override: Optional[str] = None) -> Path`.
+- Callers that already import from `project_identity` just add `find_project_root` to their existing import line.
+
+---
+
+### Scoring evaluation infrastructure (Task 3.6)
+**Date:** 2026-03-31
+**Branch:** forge-code-review
+
+**What was done:**
+Built scoring evaluation infrastructure to measure the accuracy of Forge's correction classifier against real-world data. Three scripts: pair extraction (from real transcripts), classifier evaluation (precision/recall/F1 against labeled ground truth), and diagnostic review (cached analysis introspection with threshold sensitivity). Plus labeling guidelines and 17 new tests (249 total).
+
+**Why:**
+Staff-level code review identified the #1 product risk: the NLP pipeline uses hand-tuned thresholds (0.25 corrective classification, 3.0/6.0 theme confidence, keyword weights) that were set by intuition and never validated against real data. Without measured precision/recall, every threshold is a guess. False positives erode user trust; false negatives make Forge appear useless.
+
+**Design decisions:**
+- Scripts are dev-only tooling (in `tests/scoring_eval/`), not part of the plugin. They import from the pipeline scripts using `importlib.import_module()` (same pattern as test suite).
+- Labeled data files are gitignored since they contain real user messages. Evaluation runs locally only.
+- Evaluation script reports both per-class metrics and severity calibration (checks if predicted strength correlates monotonically with labeled severity).
+
+**Technical decisions:**
+- Used `importlib.import_module("analyze-transcripts")` for hyphenated module names, matching existing test convention.
+- Diagnostic review reads from existing cache files (`~/.claude/forge/projects/<hash>/cache/transcripts.cache.json`) — no new persistence needed.
+- Threshold sensitivity analysis shows what would change at different thresholds, enabling data-driven tuning rather than blind trial-and-error.
+
+**Tradeoffs discussed:**
+- Considered automated labeling via LLM (circular — using Claude to evaluate Claude's detection) vs. human labeling (gold standard but labor-intensive). Chose human labeling as the ground truth source.
+- Considered adding evaluation to CI (can't — labeled data contains real transcripts and can't be committed) vs. local-only workflow. Chose local-only.
+
 ### Background analysis on SessionStart (v0.2.8)
 **Date:** 2026-03-31
 **Branch:** session-start-hook
