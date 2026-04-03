@@ -57,7 +57,9 @@ python3 "<FORGE_ROOT>/scripts/format-proposals.py" <<'FORGE_EOF'
 FORGE_EOF
 ```
 
-The output is JSON with `health_table`, `proposal_table`, `proposal_count`, `has_deep_cache`, and `proposals`. Show the `health_table` first, then the `proposal_table`.
+The output is JSON with `health_table`, `proposal_table`, `proposal_count`, `has_deep_cache`, `proposals`, and `safety_flagged_ids`. Show the `health_table` first, then the `proposal_table`.
+
+If `safety_flagged_ids` is non-empty, note to the user: "Proposals marked [Safety review] should include human approval steps — previous similar proposals were modified or dismissed for missing safety gates."
 
 If `proposal_count` is 0:
 - If deep analysis is running: show "Analyzing session patterns..." and wait. Present deep proposals when ready. If none, say setup looks good and stop.
@@ -70,6 +72,20 @@ Use a **single `AskUserQuestion` call** (up to 4 proposals per call) with option
 - **Never** — "Dismiss permanently"
 
 If more than 4 proposals, batch into multiple calls. If `AskUserQuestion` unavailable, ask conversationally.
+
+### Feedback capture
+
+**On Never:** Follow up with a single AskUserQuestion: "What's the main reason?" with options: "Low impact", "Missing safety steps", "Already handled", "Not relevant". Record the choice as `reason` in the outcome (`low_impact`, `missing_safety`, `already_handled`, `not_relevant`). If the user declines or AskUserQuestion is unavailable, use `"unspecified"`.
+
+**On Modify:** After generating the revised artifact, classify the modification:
+- Added approval prompts, confirmation steps, or dry-run flags → `"added_approval_gate"`
+- User narrowed scope (fewer files, events, triggers) → `"narrowed_scope"`
+- >50% of content was rewritten → `"rewrote_content"`
+- Otherwise → `"minor_tweaks"`
+
+Record as `modification_type` in the outcome.
+
+**During discussion:** If the user questions impact or raises safety concerns before deciding, note these as `conversation_signals` (array of tags: `"impact_questioned"`, `"safety_concern"`, `"existing_solution"`) in the outcome.
 
 ### Deep proposals (deep mode only)
 
@@ -124,4 +140,4 @@ python3 "<FORGE_ROOT>/scripts/finalize-proposals.py" --project-root "$(pwd)" <<'
 FORGE_EOF
 ```
 
-Where `<JSON>` has `outcomes` (array of `{id, status, type}`) and `all_proposals`. Summarize: how many approved, skipped, dismissed. Remind user to test created artifacts.
+Where `<JSON>` has `outcomes` and `all_proposals`. Each outcome has `{id, status, type}` plus optional fields: `reason` (for dismissed), `modification_type` (for modified-then-applied), `conversation_signals` (array of tags). Summarize: how many approved, skipped, dismissed. Remind user to test created artifacts.

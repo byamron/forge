@@ -92,6 +92,46 @@ def _matches_existing(pattern_text: str, existing_items: List[Dict],
 # Impact scoring
 # ---------------------------------------------------------------------------
 
+def _compute_low_impact_ratios(
+    feedback_signals: Optional[Dict],
+) -> Dict[str, float]:
+    """Compute the fraction of dismissals citing 'low_impact' per category.
+
+    Returns a dict like {"hook": 0.6, "rule": 0.1} where the value is
+    low_impact_count / total_dismissals for that category.
+    """
+    if not feedback_signals:
+        return {}
+    reasons = feedback_signals.get("dismissal_reasons", {})
+    ratios = {}  # type: Dict[str, float]
+    for cat, cat_reasons in reasons.items():
+        if not isinstance(cat_reasons, dict):
+            continue
+        total = sum(cat_reasons.get(r, 0) for r in cat_reasons)
+        if total >= 3:  # Need enough data before calibrating
+            ratios[cat] = cat_reasons.get("low_impact", 0) / total
+    return ratios
+
+
+def _apply_impact_calibration(
+    proposals: List[Dict],
+    feedback_signals: Optional[Dict],
+) -> None:
+    """Deflate impact scores for categories with high low_impact dismissal rates.
+
+    Modifies proposals in-place: 'high' → 'medium' if >40% of dismissals for
+    that proposal type cite 'low_impact'.
+    """
+    ratios = _compute_low_impact_ratios(feedback_signals)
+    if not ratios:
+        return
+    for p in proposals:
+        if p.get("impact") == "high":
+            ptype = p.get("type", "")
+            if ratios.get(ptype, 0.0) > 0.4:
+                p["impact"] = "medium"
+
+
 def _score_impact(proposal_type: str, occurrences: int = 0,
                   sessions: int = 0, severity: str = "") -> str:
     """Score a proposal's impact as high, medium, or low."""
@@ -1348,7 +1388,8 @@ def _build_context_health(config: Dict,
 def build_proposals(config: Dict, transcripts: Dict, memory: Dict,
                     dismissed: List[Dict],
                     pending: List[Dict],
-                    applied_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
+                    applied_history: Optional[List[Dict]] = None,
+                    feedback_signals: Optional[Dict] = None) -> Dict[str, Any]:
     """Build the full proposal list from all analysis sources."""
     existing_skills = config.get("existing_skills", [])
     existing_agents = config.get("existing_agents", [])
@@ -1379,6 +1420,9 @@ def build_proposals(config: Dict, transcripts: Dict, memory: Dict,
     stale_proposals = _build_from_staleness(config, transcripts)
     all_proposals.extend(stale_proposals)
 
+    # Apply feedback-based impact calibration before filtering
+    _apply_impact_calibration(all_proposals, feedback_signals)
+
     # Filter dismissed
     filtered = []
     for p in all_proposals:
@@ -1391,14 +1435,22 @@ def build_proposals(config: Dict, transcripts: Dict, memory: Dict,
     # Filter low impact
     filtered = [p for p in filtered if p.get("impact") != "low"]
 
+    # Skip decay: proposals skipped 3+ times across /forge runs auto-dismiss
+    skip_counts = {}  # type: Dict[str, int]
+    if feedback_signals:
+        skip_counts = feedback_signals.get("skip_counts", {})
+
     # Deduplicate against pending proposals
     pending_ids = {pp.get("id", "") for pp in pending
                    if pp.get("status") == "pending"}
     final = [p for p in filtered if p["id"] not in pending_ids]
 
-    # Merge with existing pending proposals
+    # Merge with existing pending proposals, applying skip decay
     for pp in pending:
         if pp.get("status") == "pending":
+            pid = pp.get("id", "")
+            if skip_counts.get(pid, 0) >= 3:
+                continue  # Skip-decayed: silently drop
             final.append(pp)
 
     # Sort: high impact first, then medium
@@ -1424,9 +1476,15 @@ def build_proposals(config: Dict, transcripts: Dict, memory: Dict,
             "ineffective_details": ineffective,
         }
 
+    # Pass through safety gate for format-proposals.py
+    safety_gate = None
+    if feedback_signals:
+        safety_gate = feedback_signals.get("safety_gate")
+
     return {
         "proposals": final,
         "context_health": context_health,
+        "safety_gate": safety_gate,
         "stats": {
             "total_candidates": len(all_proposals),
             "after_dedup": len(filtered),
@@ -1579,6 +1637,8 @@ def main():
                         help="Path to combined JSON (all three analyses)")
     parser.add_argument("--applied", type=str, default=None,
                         help="Path to applied history JSON")
+    parser.add_argument("--stats", type=str, default=None,
+                        help="Path to analyzer-stats.json for feedback signals")
     args = parser.parse_args()
 
     if args.combined:
@@ -1598,8 +1658,15 @@ def main():
     applied = (_load_json_list(args.applied)
                if args.applied else [])
 
+    # Load feedback signals from analyzer-stats.json
+    fs = None  # type: Optional[Dict]
+    if args.stats:
+        stats_data = _load_json_file(args.stats)
+        fs = stats_data.get("feedback_signals")
+
     result = build_proposals(config, transcripts, memory, dismissed, pending,
-                             applied_history=applied)
+                             applied_history=applied,
+                             feedback_signals=fs)
     json.dump(result, sys.stdout, indent=2)
     sys.stdout.write("\n")
 

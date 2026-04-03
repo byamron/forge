@@ -33,4 +33,14 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 ## Entries
 
+### FB-0001: Proposals need qualitative feedback loop
+**Date:** 2026-04-01
+**Source:** user direction
+
+**What was said:** User reported that in their portfolio site project, Forge proposals don't reach a high enough threshold (impact is exaggerated) and automation proposals skip important steps like human approval. Rejecting these proposals had no effect — similar proposals kept appearing because Forge only recorded the exact ID, not the reason for rejection.
+
+**Synthesized rule:** Forge must learn from *why* proposals are rejected, not just *that* they were. Dismissal reasons, modification patterns, and conversation signals should feed back into proposal generation to improve quality over time. Automation proposals (hooks, agents) need special scrutiny for human-in-the-loop steps.
+
+**Applies to:** proposal pipeline, impact scoring, artifact generation, SKILL.md review flow
+
 <!-- Add new entries below this line, newest first. -->

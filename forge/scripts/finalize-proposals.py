@@ -123,19 +123,115 @@ def _record_dismissed(project_root: Path, dismissed: List[Dict]) -> None:
         existing = []
     now = datetime.datetime.utcnow().isoformat() + "Z"
     for p in dismissed:
-        existing.append({
+        entry = {
             "id": p["id"],
             "type": p.get("type", "unknown"),
             "dismissed_at": now,
-        })
+        }  # type: Dict[str, Any]
+        reason = p.get("reason", "")
+        if reason:
+            entry["reason"] = reason
+        existing.append(entry)
     _write_json_atomic(dismissed_path, existing)
+
+
+# Valid dismissal reasons — kept as a set for validation
+DISMISSAL_REASONS = {
+    "low_impact", "missing_safety", "already_handled", "not_relevant",
+    "unspecified",
+}
+
+# Valid modification signal types
+MODIFICATION_SIGNALS = {
+    "added_approval_gate", "narrowed_scope", "rewrote_content", "minor_tweaks",
+}
+
+# Safety gate trigger threshold — after this many signals, automation proposals
+# get flagged for safety review
+SAFETY_GATE_THRESHOLD = 3
+
+
+def _ensure_feedback_signals(stats: Dict) -> Dict:
+    """Ensure stats has a feedback_signals section with all required keys."""
+    fs = stats.setdefault("feedback_signals", {})
+    fs.setdefault("category_precision", {})
+    fs.setdefault("dismissal_reasons", {})
+    fs.setdefault("modification_signals", {})
+    fs.setdefault("safety_gate", {
+        "triggered": False,
+        "signal_count": 0,
+        "threshold": SAFETY_GATE_THRESHOLD,
+    })
+    fs.setdefault("skip_counts", {})
+    return fs
+
+
+def _update_feedback_signals(stats: Dict, outcomes: List[Dict]) -> None:
+    """Update the feedback_signals section of analyzer-stats.json.
+
+    Tracks per-category precision, dismissal reasons, modification patterns,
+    skip counts, and the safety gate state.
+    """
+    fs = _ensure_feedback_signals(stats)
+
+    for outcome in outcomes:
+        status = outcome.get("status", "pending")
+        proposal_type = outcome.get("type", "")
+        proposal_id = outcome.get("id", "")
+
+        # Per-category precision tracking
+        if status in ("applied", "dismissed") and proposal_type:
+            cat = fs["category_precision"].setdefault(
+                proposal_type, {"approved": 0, "dismissed": 0}
+            )
+            if status == "applied":
+                cat["approved"] = cat.get("approved", 0) + 1
+            else:
+                cat["dismissed"] = cat.get("dismissed", 0) + 1
+
+        # Dismissal reason tracking
+        if status == "dismissed" and proposal_type:
+            reason = outcome.get("reason", "unspecified")
+            if reason not in DISMISSAL_REASONS:
+                reason = "unspecified"
+            reasons = fs["dismissal_reasons"].setdefault(proposal_type, {})
+            reasons[reason] = reasons.get(reason, 0) + 1
+
+        # Modification signal tracking
+        if status == "applied":
+            mod_type = outcome.get("modification_type", "")
+            if mod_type and mod_type in MODIFICATION_SIGNALS and proposal_type:
+                signals = fs["modification_signals"].setdefault(
+                    proposal_type, {}
+                )
+                signals[mod_type] = signals.get(mod_type, 0) + 1
+
+        # Skip count tracking
+        if status == "pending" and proposal_id:
+            fs["skip_counts"][proposal_id] = (
+                fs["skip_counts"].get(proposal_id, 0) + 1
+            )
+
+    # Recompute safety gate state from totals
+    total_safety_signals = 0
+    for cat_reasons in fs["dismissal_reasons"].values():
+        total_safety_signals += cat_reasons.get("missing_safety", 0)
+    for cat_mods in fs["modification_signals"].values():
+        total_safety_signals += cat_mods.get("added_approval_gate", 0)
+
+    threshold = fs["safety_gate"].get("threshold", SAFETY_GATE_THRESHOLD)
+    fs["safety_gate"] = {
+        "triggered": total_safety_signals >= threshold,
+        "signal_count": total_safety_signals,
+        "threshold": threshold,
+    }
 
 
 def _update_stats(outcomes: List[Dict]) -> None:
     """Update analyzer-stats.json with all outcomes at once."""
     stats_path = Path.home() / ".claude" / "forge" / "analyzer-stats.json"
     stats = {
-        "version": 1,
+        "version": 2,
         "corrections": {"proposed": 0, "approved": 0, "dismissed": 0},
         "post_actions": {"proposed": 0, "approved": 0, "dismissed": 0},
         "repeated_prompts": {"proposed": 0, "approved": 0, "dismissed": 0},
@@ -144,7 +240,7 @@ def _update_stats(outcomes: List[Dict]) -> None:
     }
     if stats_path.is_file():
         loaded = _load_json(stats_path)
-        if isinstance(loaded, dict) and loaded.get("version") == 1:
+        if isinstance(loaded, dict) and loaded.get("version") in (1, 2):
             stats = loaded
 
     now = datetime.datetime.utcnow().isoformat() + "Z"
@@ -152,7 +248,7 @@ def _update_stats(outcomes: List[Dict]) -> None:
     for outcome in outcomes:
         status = outcome.get("status", "pending")
         if status == "pending":
-            continue  # Skipped — no stats update
+            continue  # Skipped — no legacy stats update
 
         proposal_id = outcome.get("id", "")
         proposal_type = outcome.get("type", "")
@@ -177,6 +273,10 @@ def _update_stats(outcomes: List[Dict]) -> None:
             if proposal_id not in suppressed:
                 suppressed.append(proposal_id)
 
+    # Update feedback signals (per-category precision, reasons, modifications)
+    _update_feedback_signals(stats, outcomes)
+
+    stats["version"] = 2
     stats["last_updated"] = now
     _write_json_atomic(stats_path, stats)
 

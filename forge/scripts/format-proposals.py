@@ -67,20 +67,39 @@ def format_health_table(ctx: Dict[str, Any]) -> str:
     return "\n".join(rows)
 
 
-def format_proposal_table(proposals: List[Dict[str, Any]]) -> str:
-    """Format proposals into a numbered markdown table."""
+def format_proposal_table(
+    proposals: List[Dict[str, Any]],
+    safety_gate: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Format proposals into a numbered markdown table.
+
+    If safety_gate is triggered, hook and agent proposals are labeled
+    with a safety review marker so the user and LLM know to add approval steps.
+    """
     if not proposals:
         return ""
+
+    safety_triggered = (
+        safety_gate is not None and safety_gate.get("triggered", False)
+    )
+    safety_types = {"hook", "agent"}
 
     rows: List[str] = []
     rows.append("| # | Impact | Type | Proposal | Evidence |")
     rows.append("|---|--------|------|----------|----------|")
 
+    safety_flagged_ids = []  # type: List[str]
     for i, p in enumerate(proposals, 1):
         impact = p.get("impact", "medium")
         ptype = p.get("type", "unknown")
         desc = p.get("description", "")
         evidence = p.get("evidence_summary", "")
+
+        # Safety gate label for automation proposals
+        if safety_triggered and ptype in safety_types:
+            desc = "[Safety review] " + desc
+            safety_flagged_ids.append(p.get("id", ""))
+
         # Truncate long fields for table readability
         if len(desc) > 60:
             desc = desc[:57] + "..."
@@ -116,9 +135,18 @@ def main() -> None:
     proposals = data.get("proposals", [])
     ctx_health = data.get("context_health", {})
     deep_cache = data.get("deep_analysis_cache")
+    safety_gate = data.get("safety_gate")
 
     health_table = format_health_table(ctx_health)
-    proposal_table = format_proposal_table(proposals)
+    proposal_table = format_proposal_table(proposals, safety_gate=safety_gate)
+
+    # Collect safety-flagged IDs from the formatted table
+    safety_flagged_ids = []  # type: List[str]
+    if safety_gate and safety_gate.get("triggered", False):
+        safety_flagged_ids = [
+            p.get("id", "") for p in proposals
+            if p.get("type") in ("hook", "agent")
+        ]
 
     output = {
         "health_table": health_table,
@@ -126,6 +154,7 @@ def main() -> None:
         "proposal_count": len(proposals),
         "has_deep_cache": deep_cache is not None,
         "proposals": proposals,
+        "safety_flagged_ids": safety_flagged_ids,
     }
 
     json.dump(output, sys.stdout, indent=2)

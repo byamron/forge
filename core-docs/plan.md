@@ -2,13 +2,14 @@
 
 ## Current Focus
 
-SKILL.md fragility reduction complete (v0.3.3): 206 → 127 lines. Three scripts extracted (`format-proposals.py`, `validate-paths.py`, `merge-settings.py`) with 23 tests. All active P0-P3 items complete.
+Qualitative proposal feedback loop complete (v0.3.4): Forge now captures *why* proposals are rejected/modified and uses that to calibrate future proposal quality. 37 new tests (376 total). SKILL.md grew from 127 to ~142 lines for feedback capture instructions.
 
 ## Handoff Notes
 
 - Background deep analysis is implemented but untested end-to-end with `analysis_depth: "deep"`. Should verify the `claude -p --bare` invocation works on a real project.
 - Labeled eval data at `tests/scoring_eval/labeled/*.json` (gitignored). 113 pairs labeled.
 - Phase 4 (cross-project aggregation, explain mode, self-cost tracking) not yet scoped.
+- The feedback loop needs real-world validation — run `/forge` on a project, dismiss/modify proposals, then run `/forge` again to verify the calibration kicks in.
 
 ## Spec & Roadmap
 
@@ -146,6 +147,7 @@ All 11 tasks shipped. See `core-docs/history.md` for details.
 | 3.4 Stale config detection | ✅ Done | Cross-references artifacts against session data; 4 matching strategies |
 | 3.5 Artifact effectiveness tracking | ✅ Done | Track if corrections stop after artifact deployed; 12 tests |
 | 3.6 Scoring evaluation (NEW) | 🟡 Infra done | Scripts built, 17 tests; labeling + tuning pending |
+| 3.7 Qualitative feedback loop (NEW) | ✅ Done | Dismissal reasons, modification signals, impact calibration, safety gate, skip decay; 37 tests |
 
 ### Phase 4: Advanced (v1.0) — Not started (blocked on Phase 3 quality track)
 
@@ -159,6 +161,10 @@ All 11 tasks shipped. See `core-docs/history.md` for details.
 ---
 
 ## Recently Completed
+
+### Qualitative proposal feedback loop (v0.3.4)
+**Date:** 2026-04-01
+Captures *why* proposals are rejected/modified and uses feedback to calibrate future quality: dismissal reasons (multiple choice), modification classification (LLM-tagged), conversation signals, per-category precision, impact deflation for low-value categories, safety gate for automation proposals, and skip decay. 37 new tests (376 total).
 
 ### Background analysis on SessionStart (v0.2.8)
 **Date:** 2026-03-31

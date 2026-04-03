@@ -37,6 +37,39 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Qualitative proposal feedback loop (v0.3.4)
+**Date:** 2026-04-01
+**Branch:** proposal-feedback-loop
+
+**What was done:**
+Added a qualitative feedback loop so Forge learns *why* proposals are rejected or modified, not just *that* they were:
+1. Dismissal reasons — when user chooses "Never", a follow-up captures the reason (low_impact, missing_safety, already_handled, not_relevant)
+2. Modification classification — when user modifies a proposal, the LLM classifies the change (added_approval_gate, narrowed_scope, rewrote_content, minor_tweaks)
+3. Conversation signal capture — user concerns during discussion are tagged (impact_questioned, safety_concern, existing_solution)
+4. Per-category precision tracking — approve/dismiss ratios computed per proposal type (hook, rule, skill, agent), not just for corrections
+5. Impact calibration — categories with >40% "low_impact" dismissals get high→medium deflation
+6. Safety gate — after 3 signals (missing_safety dismissals + added_approval_gate modifications), automation proposals (hooks/agents) get a visible [Safety review] label
+7. Skip decay — proposals skipped 3+ times across sessions are silently dropped from pending
+
+**Why:**
+Users reported two failure modes: (1) proposals with exaggerated impact scores that weren't worth acting on, and (2) automation proposals (hooks, agents) that skipped important human approval steps. Forge was blocking exact proposal IDs on dismissal but not learning the *category* of failure, so similar low-quality proposals kept appearing.
+
+**Design decisions:**
+- Extend analyzer-stats.json with a `feedback_signals` section (version 1→2) rather than adding a new file — keeps all feedback data collocated
+- Dismissal reasons as optional multiple-choice (not free-text) — ~3 seconds of user effort, high signal
+- Modification classification done by the LLM during the existing Modify flow — zero extra token cost
+- Impact calibration as a post-processing pass in build_proposals rather than threading calibration through every _score_impact call — cleaner, less invasive
+
+**Technical decisions:**
+- Safety gate threshold set at 3 signals — low enough to activate within a few sessions, high enough to avoid false triggers from a single bad proposal
+- Low_impact ratio needs >=3 total dismissals before calibrating — prevents wild swings from small sample sizes
+- Skip decay at 3 skips — conservative enough that users who genuinely want to defer still have room, but eventually cleans up stale pending proposals
+
+**Tradeoffs discussed:**
+- Free-text dismissal reasons would capture richer feedback but require LLM analysis to process (violates zero-cost constraint) and adds friction
+- Could have created a separate feedback-signals.json file, but collocating in analyzer-stats.json avoids adding another file to cache-manager fingerprinting and keeps the feedback loop self-contained
+- Conversation signals are "weak" — they influence aggregate stats but don't block individual proposals. Stronger treatment risked over-reacting to casual remarks
+
 ### SKILL.md fragility reduction: 206 → 127 lines (v0.3.3)
 **Date:** 2026-04-01
 **Branch:** skill-refactor
