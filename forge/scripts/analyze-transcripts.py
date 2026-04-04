@@ -1555,11 +1555,15 @@ def main():
     # Find all session directories (cross-worktree)
     session_dirs = find_all_project_session_dirs(root)
 
-    # Compute precision info for output
+    # Compute precision info for output — per-category
     corr_prec = precision_rate(stats, "corrections")
+    post_prec = precision_rate(stats, "post_actions")
+    repeat_prec = precision_rate(stats, "repeated_prompts")
     feedback_info = {
         "loaded": bool(stats.get("theme_outcomes")),
         "corrections_precision": round(corr_prec, 2) if corr_prec is not None else None,
+        "post_actions_precision": round(post_prec, 2) if post_prec is not None else None,
+        "repeated_prompts_precision": round(repeat_prec, 2) if repeat_prec is not None else None,
         "suppressed_count": len(stats.get("suppressed_themes", [])),
     }
 

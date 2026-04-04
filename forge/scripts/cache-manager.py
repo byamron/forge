@@ -391,6 +391,11 @@ def _build_proposals_from_cache(root: Path,
     if applied_path.is_file():
         cmd.extend(["--applied", str(applied_path)])
 
+    # Pass analyzer-stats.json for feedback signal calibration
+    stats_path = Path.home() / ".claude" / "forge" / "analyzer-stats.json"
+    if stats_path.is_file():
+        cmd.extend(["--stats", str(stats_path)])
+
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=5, cwd=str(root)

@@ -57,7 +57,9 @@ python3 "<FORGE_ROOT>/scripts/format-proposals.py" <<'FORGE_EOF'
 FORGE_EOF
 ```
 
-The output is JSON with `health_table`, `proposal_table`, `proposal_count`, `has_deep_cache`, and `proposals`. Show the `health_table` first, then the `proposal_table`.
+The output is JSON with `health_table`, `proposal_table`, `proposal_count`, `has_deep_cache`, `proposals`, and `safety_flagged_ids`. Show the `health_table` first, then the `proposal_table`.
+
+If `safety_flagged_ids` is non-empty, note to the user: "Proposals marked [Safety review] should include human approval steps — previous similar proposals were modified or dismissed for missing safety gates."
 
 If `proposal_count` is 0:
 - If deep analysis is running: show "Analyzing session patterns..." and wait. Present deep proposals when ready. If none, say setup looks good and stop.
@@ -70,6 +72,27 @@ Use a **single `AskUserQuestion` call** (up to 4 proposals per call) with option
 - **Never** — "Dismiss permanently"
 
 If more than 4 proposals, batch into multiple calls. If `AskUserQuestion` unavailable, ask conversationally.
+
+### Feedback capture
+
+**On Never:** Follow up with a single AskUserQuestion: "What's the main reason?" with options: "Low impact", "Missing safety steps", "Already handled", "Not relevant". Map the choice to the outcome's `reason` field:
+
+| User picks | `reason` value |
+|------------|----------------|
+| Low impact | `low_impact` |
+| Missing safety steps | `missing_safety` |
+| Already handled | `already_handled` |
+| Not relevant | `not_relevant` |
+
+If the user declines or AskUserQuestion is unavailable, use `"unspecified"`. Example outcome: `{"id": "auto-lint-hook", "status": "dismissed", "type": "hook", "reason": "low_impact"}`.
+
+**On Modify:** After generating the revised artifact, classify the modification based on the user's requested changes (infer from context — do not ask the user to pick a category):
+- User asked for approval steps, confirmation, dry-run, or human-in-the-loop → `"added_approval_gate"`
+- User narrowed scope (fewer files, events, triggers) → `"narrowed_scope"`
+- >50% of content was rewritten → `"rewrote_content"`
+- Otherwise → `"minor_tweaks"`
+
+Record as `modification_type` in the outcome. Example: `{"id": "auto-lint-hook", "status": "applied", "type": "hook", "modification_type": "added_approval_gate"}`.
 
 ### Deep proposals (deep mode only)
 
@@ -98,7 +121,9 @@ Skip any proposal where `valid` is false and warn the user.
 
 Run `mkdir -p` for all needed directories in one batch.
 
-Generate artifact content following templates. Write each type:
+Generate artifact content following templates. **For safety-flagged proposals** (those in `safety_flagged_ids`): the generated hook or agent MUST include a human approval mechanism — a confirmation prompt, dry-run flag, or explicit user gate. Do not generate automation that runs silently if the safety gate is active.
+
+Write each type:
 - **CLAUDE.md entries**: Append. Warn if over 200 lines after.
 - **Rules**: Write to `.claude/rules/<name>.md`
 - **Hooks**: Use the merge script:
@@ -124,4 +149,4 @@ python3 "<FORGE_ROOT>/scripts/finalize-proposals.py" --project-root "$(pwd)" <<'
 FORGE_EOF
 ```
 
-Where `<JSON>` has `outcomes` (array of `{id, status, type}`) and `all_proposals`. Summarize: how many approved, skipped, dismissed. Remind user to test created artifacts.
+Where `<JSON>` has `outcomes` and `all_proposals`. Each outcome has `{id, status, type}` plus optional fields: `reason` (for dismissed), `modification_type` (for modified-then-applied). Summarize: how many approved, skipped, dismissed. Remind user to test created artifacts.
