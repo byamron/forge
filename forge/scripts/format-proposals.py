@@ -88,7 +88,6 @@ def format_proposal_table(
     rows.append("| # | Impact | Type | Proposal | Evidence |")
     rows.append("|---|--------|------|----------|----------|")
 
-    safety_flagged_ids = []  # type: List[str]
     for i, p in enumerate(proposals, 1):
         impact = p.get("impact", "medium")
         ptype = p.get("type", "unknown")
@@ -98,7 +97,6 @@ def format_proposal_table(
         # Safety gate label for automation proposals
         if safety_triggered and ptype in safety_types:
             desc = "[Safety review] " + desc
-            safety_flagged_ids.append(p.get("id", ""))
 
         # Truncate long fields for table readability
         if len(desc) > 60:

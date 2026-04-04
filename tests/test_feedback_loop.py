@@ -114,6 +114,25 @@ class TestFeedbackSignalRecording:
         fp._update_feedback_signals(stats, outcomes)
         assert stats["feedback_signals"]["skip_counts"]["my-proposal"] == 3
 
+    def test_skip_cleaned_on_dismiss(self):
+        """Dismissing a proposal removes its skip count."""
+        stats = _make_stats({"skip_counts": {"old-proposal": 2}})
+        outcomes = [
+            {"id": "old-proposal", "status": "dismissed", "type": "hook",
+             "reason": "low_impact"},
+        ]
+        fp._update_feedback_signals(stats, outcomes)
+        assert "old-proposal" not in stats["feedback_signals"]["skip_counts"]
+
+    def test_skip_cleaned_on_apply(self):
+        """Applying a proposal removes its skip count."""
+        stats = _make_stats({"skip_counts": {"my-skill": 1}})
+        outcomes = [
+            {"id": "my-skill", "status": "applied", "type": "skill"},
+        ]
+        fp._update_feedback_signals(stats, outcomes)
+        assert "my-skill" not in stats["feedback_signals"]["skip_counts"]
+
     def test_safety_gate_triggers_at_threshold(self):
         stats = _make_stats({
             "dismissal_reasons": {
@@ -183,6 +202,45 @@ class TestFeedbackSignalRecording:
             fp._record_dismissed(project, dismissed)
         data = json.loads((tmp_path / "dismissed.json").read_text())
         assert "reason" not in data[0]
+
+    def test_record_applied_tracking_rule(self, tmp_path):
+        """Rule proposals get correction tracking via TYPE_TO_CATEGORY."""
+        project = tmp_path / "project"
+        project.mkdir()
+        (tmp_path / "history").mkdir(parents=True, exist_ok=True)
+        applied = [{"id": "fix-imports", "type": "rule"}]
+        all_proposals = [{"id": "fix-imports", "type": "rule",
+                          "description": "Fix imports", "evidence_summary": "3x"}]
+        with patch.object(fp, "get_user_data_dir", return_value=tmp_path):
+            fp._record_applied(project, applied, all_proposals)
+        data = json.loads((tmp_path / "history" / "applied.json").read_text())
+        assert data[0]["tracking"]["source"] == "correction"
+
+    def test_record_applied_tracking_hook(self, tmp_path):
+        """Hook proposals get post_action tracking via TYPE_TO_CATEGORY."""
+        project = tmp_path / "project"
+        project.mkdir()
+        (tmp_path / "history").mkdir(parents=True, exist_ok=True)
+        applied = [{"id": "auto-lint", "type": "hook"}]
+        all_proposals = [{"id": "auto-lint", "type": "hook",
+                          "description": "Lint hook", "evidence_summary": "5x"}]
+        with patch.object(fp, "get_user_data_dir", return_value=tmp_path):
+            fp._record_applied(project, applied, all_proposals)
+        data = json.loads((tmp_path / "history" / "applied.json").read_text())
+        assert data[0]["tracking"]["source"] == "post_action"
+
+    def test_record_applied_tracking_skill(self, tmp_path):
+        """Skill proposals get repeated_prompt tracking via TYPE_TO_CATEGORY."""
+        project = tmp_path / "project"
+        project.mkdir()
+        (tmp_path / "history").mkdir(parents=True, exist_ok=True)
+        applied = [{"id": "deploy-skill", "type": "skill"}]
+        all_proposals = [{"id": "deploy-skill", "type": "skill",
+                          "description": "Deploy", "evidence_summary": "9x"}]
+        with patch.object(fp, "get_user_data_dir", return_value=tmp_path):
+            fp._record_applied(project, applied, all_proposals)
+        data = json.loads((tmp_path / "history" / "applied.json").read_text())
+        assert data[0]["tracking"]["source"] == "repeated_prompt"
 
 
 # ---------------------------------------------------------------------------

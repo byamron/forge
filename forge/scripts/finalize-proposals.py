@@ -97,15 +97,22 @@ def _record_applied(project_root: Path, applied: List[Dict],
             "description": full.get("description", ""),
         }  # type: Dict[str, Any]
 
-        # For correction-based proposals, store pattern details for tracking
-        if full.get("source_type") in ("correction", "corrections"):
+        # Store tracking data based on the proposal type → stat category mapping
+        ptype = p.get("type", "")
+        category = TYPE_TO_CATEGORY.get(ptype, "")
+        if category == "corrections":
             entry["tracking"] = {
                 "source": "correction",
                 "pattern_id": pid,
             }
-        elif full.get("type") == "hook":
+        elif category == "post_actions":
             entry["tracking"] = {
                 "source": "post_action",
+                "pattern_id": pid,
+            }
+        elif category == "repeated_prompts":
+            entry["tracking"] = {
+                "source": "repeated_prompt",
                 "pattern_id": pid,
             }
 
@@ -206,11 +213,13 @@ def _update_feedback_signals(stats: Dict, outcomes: List[Dict]) -> None:
                 )
                 signals[mod_type] = signals.get(mod_type, 0) + 1
 
-        # Skip count tracking
+        # Skip count tracking — only for pending; clean up on terminal status
         if status == "pending" and proposal_id:
             fs["skip_counts"][proposal_id] = (
                 fs["skip_counts"].get(proposal_id, 0) + 1
             )
+        elif status in ("applied", "dismissed") and proposal_id:
+            fs["skip_counts"].pop(proposal_id, None)
 
     # Recompute safety gate state from totals
     total_safety_signals = 0
