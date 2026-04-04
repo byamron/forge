@@ -37,6 +37,42 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### P0 validation: portfolio-site + PriorityAppXcode
+**Date:** 2026-04-04
+**Branch:** test-forge-validation
+
+**What was done:**
+Ran the full Forge analysis pipeline against two real user projects (portfolio-site with 30 sessions, PriorityAppXcode with 17 sessions). Recorded all proposals, simulated user decisions (approve/dismiss/skip), then re-ran to test feedback loop calibration.
+
+**Why:**
+P0 validation — needed to verify proposal quality and calibration mechanisms on real projects beyond the Forge repo itself. The Forge repo validation (11% acceptance) suggested deep problems; needed to confirm they're systematic.
+
+**Design decisions:**
+- Dismissed agents for "not_relevant" rather than "low_impact" — because the problem isn't that agents have low impact, it's that they're not project-specific workflows at all. This distinction matters for calibration (low_impact triggers impact deflation, not_relevant doesn't).
+
+**Technical decisions:**
+- Ran pipeline via scripts directly rather than through `/forge` skill — allowed controlled testing of each stage and inspection of intermediate data.
+
+**Findings (real projects — agent-simulated decisions):**
+- Raw proposal acceptance: 0% (portfolio-site), 22% (PriorityAppXcode)
+- 44% of all proposals are memory promotions — all dismissed, all low quality
+- 26% are generic workflow agents — all dismissed, identical across projects
+- Applied-ID filter bug: `build_proposals()` doesn't filter applied proposal IDs, so demotions regenerated from config analysis reappear
+- Memory/correction overlap: `_build_from_memory` and `_build_from_corrections` generate duplicate proposals from same user feedback
+- Calibration mechanisms (dismissed filtering, feedback signals, skip counts) all work correctly
+
+**Findings (synthetic profiles — deterministic):**
+- react-ts: 6/6 good proposals (demotions + hooks). Config-only projects produce clean results.
+- swift-ios: 10/10 bad (all memory promotions). Memory builder is the #1 noise source.
+- fullstack-mature: dismissed/suppressed filtering confirmed working.
+- rust-minimal: 0 proposals. Threshold enforcement prevents false positives.
+- Gap: synthetic data doesn't generate workflow agents (no read→write→execute patterns in fixtures).
+
+**Tradeoffs discussed:**
+- Whether to extend impact deflation to "not_relevant" dismissals — decided no, keep it focused on "low_impact" since not_relevant is about specific proposals, not category quality. The LLM gate handles the not_relevant case.
+
+---
+
 ### CI/CD setup — GitHub Actions + branch protection (P6)
 **Date:** 2026-04-04
 **Branch:** github-actions-ci
