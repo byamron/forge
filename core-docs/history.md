@@ -37,6 +37,33 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Ambient presence and proactive surfacing (P1)
+**Date:** 2026-04-04
+**Branch:** p1-effectiveness-tracking
+
+**What was done:**
+Rewrote `check-pending.py` from a simple session-count nudger into a three-tier ambient presence system. (1) Proactive proposals: when high-confidence cached proposals exist and `proactive_proposals` setting is on (default), surfaces top 1-2 proposals at session start with description, evidence, and occurrence data — enough to approve inline without running `/forge`. (2) Effectiveness alerts: checks applied artifacts against current transcript analysis and warns when patterns persist after an artifact was applied. (3) Ambient health signal: when nothing else to say, emits a brief status line ("Forge: tracking 23 sessions. All 5 applied artifacts effective.") so users always know Forge is active.
+
+Added `proactive_proposals` boolean setting (default: true) to `read-settings.py`, `write-settings.py`, and `/forge:settings` SKILL.md. Updated both READMEs with new product framing. 21 new tests, 509 total passing.
+
+**Why:**
+FB-0002: Users couldn't tell Forge was working. Four hooks ran every session but produced no visible output most of the time. The gap between "Forge is analyzing" and "user sees value" was too large — P0 validation showed raw proposals are poor quality, so `/forge` felt manual and unreliable. Proactive surfacing of pre-filtered, high-confidence proposals closes this gap.
+
+**Design decisions:**
+- Proactive proposals are gated on `confidence == "high" AND (impact == "high" OR occurrences >= 5)`. This is intentionally strict — surfacing a bad proposal proactively is worse than not surfacing at all. The LLM quality gate (P0b) already filters the cached proposals, so the proactive filter is a second layer.
+- Effectiveness alerts fire for any applied artifact where the triggering pattern is still detected, regardless of nudge level. This is always-on information the user needs.
+- Health signal is the lowest priority — only shows when there are no proactive proposals and no alerts. Prevents the "is this thing doing anything?" confusion.
+- `proactive_proposals` defaults to true. The setting exists for users who want `/forge` to be the only interaction point, but the default optimizes for the "living system" framing (FB-0002).
+
+**Technical decisions:**
+- Reused `load_applied_history` and `load_effectiveness` by reading from the project-level `.claude/forge/` path (with user-level fallback), consistent with the P0-prereq storage split.
+- `count_total_sessions` uses `max(session_log_lines, unanalyzed_lines)` since both files track sessions but from different angles.
+- Effectiveness data is read from `cache/proposals.json` which includes the `effectiveness` array from `_compute_effectiveness()` in build-proposals.py. No new cache files needed.
+
+**Tradeoffs discussed:**
+- Three-level nudge (quiet/balanced/eager) vs. single boolean: kept the three levels for session-count nudges since they're already shipped and provide real granularity. Added proactive as a separate boolean because it's a fundamentally different behavior (showing proposals vs. showing counts).
+- systemMessage reliability: Claude may or may not surface systemMessage content. Accepted this limitation — proactive proposals include enough detail that if Claude does surface them, the user gets real value. If not, `/forge` remains the guaranteed path. Alternative was a `prompt`-type hook that forces a response, but that would interrupt the user's actual task.
+
 ### Analyzer unit tests + test suite quality audit (P4)
 **Date:** 2026-04-04
 **Branch:** analyzer-unit-tests

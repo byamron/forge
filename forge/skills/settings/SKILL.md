@@ -40,17 +40,27 @@ Show the current level clearly:
 | **balanced** (default) | When you have pending proposals, or after 5+ sessions since last analysis | Most users |
 | **eager** | When you have any pending proposals, or after 2+ sessions since last analysis | Staying on top of config proactively |
 
+### Proactive proposals
+
+Show the current setting:
+
+> **Proactive proposals: on** (default)
+
+When **on**, Forge surfaces high-confidence suggestions at session start with enough detail to approve them inline -- no need to run `/forge`. When **off**, Forge still analyzes in the background but only shows a count ("3 pending proposals").
+
 ## Step 3 -- Apply the user's choice
 
 Map natural language to the closest option:
 - "quiet" / "don't nudge" -> `--nudge-level quiet`
 - "balanced" / "default" -> `--nudge-level balanced`
 - "eager" / "proactive" -> `--nudge-level eager`
+- "show proposals at start" / "proactive on" -> `--proactive-proposals on`
+- "don't show proposals at start" / "proactive off" -> `--proactive-proposals off`
 
-Run:
+Both flags can be combined in one call. Run:
 
 ```bash
-python3 "<FORGE_ROOT>/scripts/write-settings.py" --nudge-level <level>
+python3 "<FORGE_ROOT>/scripts/write-settings.py" --nudge-level <level> --proactive-proposals <on|off>
 ```
 
 Confirm the change with a one-line summary of what the new setting means.

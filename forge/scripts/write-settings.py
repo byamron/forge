@@ -5,7 +5,7 @@ Reads the existing settings file, applies the change, writes it back.
 Creates the file and directory if they don't exist.
 
 Usage:
-    python3 write-settings.py --nudge-level <quiet|balanced|eager>
+    python3 write-settings.py --nudge-level <quiet|balanced|eager> --proactive-proposals <on|off>
 """
 
 import argparse
@@ -13,6 +13,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any, Dict
 
 from project_identity import find_project_root, get_user_data_dir
 
@@ -32,9 +33,14 @@ def main():
         choices=VALID_LEVELS,
         help="Set the nudge frequency level.",
     )
+    parser.add_argument(
+        "--proactive-proposals",
+        choices=("on", "off"),
+        help="Enable or disable proactive proposal surfacing at session start.",
+    )
     args = parser.parse_args()
 
-    if not args.nudge_level:
+    if not args.nudge_level and not args.proactive_proposals:
         print("No changes specified.", file=sys.stderr)
         sys.exit(1)
 
@@ -51,7 +57,10 @@ def main():
             pass
 
     # Apply changes
-    settings["nudge_level"] = args.nudge_level
+    if args.nudge_level:
+        settings["nudge_level"] = args.nudge_level
+    if args.proactive_proposals:
+        settings["proactive_proposals"] = args.proactive_proposals == "on"
 
     # Write atomically
     settings_path.parent.mkdir(parents=True, exist_ok=True)
@@ -64,9 +73,12 @@ def main():
 
     output = {
         "settings_path": str(settings_path),
-        "nudge_level": args.nudge_level,
-        "nudge_level_description": LEVEL_DESCRIPTIONS[args.nudge_level],
-    }
+    }  # type: Dict[str, Any]
+    if args.nudge_level:
+        output["nudge_level"] = args.nudge_level
+        output["nudge_level_description"] = LEVEL_DESCRIPTIONS[args.nudge_level]
+    if args.proactive_proposals:
+        output["proactive_proposals"] = settings["proactive_proposals"]
     json.dump(output, sys.stdout, indent=2)
     sys.stdout.write("\n")
 

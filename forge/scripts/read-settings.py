@@ -16,6 +16,7 @@ from project_identity import find_project_root, resolve_user_file
 
 DEFAULTS = {
     "nudge_level": "balanced",
+    "proactive_proposals": True,
 }
 
 LEVEL_DESCRIPTIONS = {
@@ -56,10 +57,13 @@ def main():
     if level not in LEVEL_DESCRIPTIONS:
         level = "balanced"
 
+    proactive = settings.get("proactive_proposals", True)
+
     output = {
         "nudge_level": level,
         "nudge_level_description": LEVEL_DESCRIPTIONS[level],
         "session_threshold": LEVEL_THRESHOLDS[level],
+        "proactive_proposals": proactive,
         "all_levels": {
             name: {"description": desc, "session_threshold": LEVEL_THRESHOLDS[name]}
             for name, desc in LEVEL_DESCRIPTIONS.items()
