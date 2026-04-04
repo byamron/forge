@@ -234,7 +234,7 @@ Ran the full pipeline on all 5 synthetic test profiles (controlled signals, no s
 **Conclusion:** Raw script proposals are too noisy for direct user consumption. The LLM quality gate is essential. P0a fixes (staleness ratio, demotion scaling) and the new applied-ID filter bug are needed. Memory promotion builder needs a quality overhaul or should be deprioritized behind the LLM gate.
 
 ### P0a. Script-side quality fixes
-**Status:** Not started
+**Status:** Complete (v0.3.7, shipped in PR #34 alongside P0b)
 **Priority:** CRITICAL — bugs found during P0 validation.
 **Goal:** Fix staleness miscalibration, demotion scaling, duplicate IDs, applied-ID filter.
 **Impacts:** Accuracy
@@ -678,7 +678,7 @@ No new scripts needed — the SKILL.md can read `applied.json` directly and form
 |------|--------|-------|
 | 4.0-prereq Storage split | ✅ Done | v0.3.6 — feedback data to `.claude/forge/`, personal data stays `~/.claude/forge/` |
 | 4.0 Real-world validation | ✅ Done | 3 projects validated. 0-22% raw acceptance. Applied-ID filter bug found. |
-| 4.0a Script quality fixes | ❌ Next | Staleness ratio, demotion scaling, duplicate IDs |
+| 4.0a Script quality fixes | ✅ Done | v0.3.7 — staleness ratio-based, demotion scaling by context pressure, duplicate ID prevention |
 | 4.0b LLM quality gate | ✅ Done | v0.3.7 — LLM always-on, session-analyzer filters proposals, analysis_depth removed |
 | 4.1 Ambient presence | ❌ P1 | Proactive proposals at session start, effectiveness alerts, health signal |
 | 4.2 Proposal presentation | ❌ P2 | "What changed", evidence improvements, feedback visibility, previews |
