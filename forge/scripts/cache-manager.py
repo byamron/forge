@@ -26,7 +26,13 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from project_identity import find_project_root, get_user_data_dir, resolve_user_file
+from project_identity import (
+    find_project_root,
+    get_project_data_dir,
+    get_user_data_dir,
+    resolve_project_file,
+    resolve_user_file,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -134,11 +140,17 @@ def fingerprint_transcripts(root: Path) -> str:
     if stat:
         entries.append(f"analyzer-stats:{stat[0]}:{stat[1]}")
 
-    # Dismissed proposals (affects filtering) — now in user-level dir
-    dismissed_path = resolve_user_file(root, "dismissed.json")
+    # Dismissed proposals (affects filtering) — now in project-level dir
+    dismissed_path = resolve_project_file(root, "dismissed.json")
     stat = file_stat(dismissed_path)
     if stat:
         entries.append(f"dismissed:{stat[0]}:{stat[1]}")
+
+    # Feedback signals (affects calibration) — project-level
+    fs_path = get_project_data_dir(root) / "feedback_signals.json"
+    stat = file_stat(fs_path)
+    if stat:
+        entries.append(f"feedback-signals:{stat[0]}:{stat[1]}")
 
     # Count JSONL files in the project's session directory for backup signal
     project_hash = str(root).replace("/", "-").lstrip("-")
@@ -376,9 +388,11 @@ def _build_proposals_from_cache(root: Path,
     else:
         script_path = Path(__file__).parent / "build-proposals.py"
 
-    dismissed_path = resolve_user_file(root, "dismissed.json")
+    # Dismissed and applied are project-level (shared across contributors)
+    dismissed_path = resolve_project_file(root, "dismissed.json")
+    applied_path = resolve_project_file(root, "history/applied.json")
+    # Pending stays user-level (personal, regenerated each run)
     pending_path = resolve_user_file(root, "proposals/pending.json")
-    applied_path = resolve_user_file(root, "history/applied.json")
 
     cmd = [
         "python3", str(script_path),
@@ -391,10 +405,15 @@ def _build_proposals_from_cache(root: Path,
     if applied_path.is_file():
         cmd.extend(["--applied", str(applied_path)])
 
-    # Pass analyzer-stats.json for feedback signal calibration
-    stats_path = Path.home() / ".claude" / "forge" / "analyzer-stats.json"
-    if stats_path.is_file():
-        cmd.extend(["--stats", str(stats_path)])
+    # Pass project-level feedback signals for calibration (preferred)
+    fs_path = get_project_data_dir(root) / "feedback_signals.json"
+    if fs_path.is_file():
+        cmd.extend(["--feedback-signals", str(fs_path)])
+    else:
+        # Fall back to user-level analyzer-stats.json for legacy compat
+        stats_path = Path.home() / ".claude" / "forge" / "analyzer-stats.json"
+        if stats_path.is_file():
+            cmd.extend(["--stats", str(stats_path)])
 
     try:
         proc = subprocess.run(

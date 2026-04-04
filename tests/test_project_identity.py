@@ -163,6 +163,131 @@ class TestResolveUserFile:
         assert not legacy_file.exists()
 
 
+class TestGetProjectDataDir:
+    """Verify project-level data directory creation and path."""
+
+    def test_returns_path_under_project_claude_forge(self, tmp_path):
+        result = pi.get_project_data_dir(tmp_path)
+        assert result == tmp_path / ".claude" / "forge"
+
+    def test_creates_directory(self, tmp_path):
+        result = pi.get_project_data_dir(tmp_path)
+        assert result.is_dir()
+
+    def test_idempotent(self, tmp_path):
+        """Calling twice returns the same path without error."""
+        d1 = pi.get_project_data_dir(tmp_path)
+        d2 = pi.get_project_data_dir(tmp_path)
+        assert d1 == d2
+        assert d1.is_dir()
+
+
+class TestResolveProjectFile:
+    """Verify project-level file resolution with migration from user-level."""
+
+    def test_rejects_path_traversal(self, tmp_path):
+        with pytest.raises(ValueError, match="\\.\\."):
+            pi.resolve_project_file(tmp_path, "../etc/passwd")
+
+    def test_returns_project_path_when_file_exists_there(self, tmp_path, monkeypatch):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        project_dir = pi.get_project_data_dir(tmp_path)
+        (project_dir / "dismissed.json").write_text('[{"id":"test"}]')
+
+        with patch.object(pi, "_get_git_remote_url", return_value=None):
+            result = pi.resolve_project_file(tmp_path, "dismissed.json")
+        assert result == project_dir / "dismissed.json"
+        assert result.is_file()
+
+    def test_migrates_from_user_level(self, tmp_path, monkeypatch):
+        """Copies file from user-level to project-level when only user-level exists."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        # Set up user-level file
+        with patch.object(pi, "_get_git_remote_url", return_value=None):
+            user_dir = pi.get_user_data_dir(tmp_path)
+        (user_dir / "dismissed.json").write_text('[{"id":"migrated"}]')
+
+        with patch.object(pi, "_get_git_remote_url", return_value=None):
+            result = pi.resolve_project_file(tmp_path, "dismissed.json")
+
+        # File copied to project-level
+        assert result.is_file()
+        assert json.loads(result.read_text()) == [{"id": "migrated"}]
+
+    def test_does_not_delete_user_level_copy(self, tmp_path, monkeypatch):
+        """User-level copy must NOT be deleted during migration."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        with patch.object(pi, "_get_git_remote_url", return_value=None):
+            user_dir = pi.get_user_data_dir(tmp_path)
+        user_file = user_dir / "dismissed.json"
+        user_file.write_text('[{"id":"keep-me"}]')
+
+        with patch.object(pi, "_get_git_remote_url", return_value=None):
+            pi.resolve_project_file(tmp_path, "dismissed.json")
+
+        # User-level copy still exists
+        assert user_file.is_file()
+        assert json.loads(user_file.read_text()) == [{"id": "keep-me"}]
+
+    def test_returns_project_path_when_neither_exists(self, tmp_path, monkeypatch):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        with patch.object(pi, "_get_git_remote_url", return_value=None):
+            result = pi.resolve_project_file(tmp_path, "dismissed.json")
+        assert str(result).endswith(".claude/forge/dismissed.json")
+        assert not result.exists()
+
+    def test_nested_relative_path_migrates(self, tmp_path, monkeypatch):
+        """Nested paths like history/applied.json work correctly."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        with patch.object(pi, "_get_git_remote_url", return_value=None):
+            user_dir = pi.get_user_data_dir(tmp_path)
+        (user_dir / "history").mkdir(parents=True)
+        (user_dir / "history" / "applied.json").write_text("[]")
+
+        with patch.object(pi, "_get_git_remote_url", return_value=None):
+            result = pi.resolve_project_file(tmp_path, "history/applied.json")
+
+        assert result.is_file()
+        assert result.read_text() == "[]"
+        # User-level copy preserved
+        assert (user_dir / "history" / "applied.json").is_file()
+
+    def test_project_level_takes_priority_over_user_level(self, tmp_path, monkeypatch):
+        """When both exist, project-level is returned without re-migration."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        # Set up both locations with different data
+        project_dir = pi.get_project_data_dir(tmp_path)
+        (project_dir / "dismissed.json").write_text('[{"id":"project"}]')
+
+        with patch.object(pi, "_get_git_remote_url", return_value=None):
+            user_dir = pi.get_user_data_dir(tmp_path)
+        (user_dir / "dismissed.json").write_text('[{"id":"user"}]')
+
+        with patch.object(pi, "_get_git_remote_url", return_value=None):
+            result = pi.resolve_project_file(tmp_path, "dismissed.json")
+
+        # Project-level wins
+        assert json.loads(result.read_text()) == [{"id": "project"}]
+
+
 class TestFindProjectRoot:
     """Test the consolidated find_project_root function."""
 

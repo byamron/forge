@@ -10,7 +10,7 @@ The plugin lives in `forge/` and is tested with `claude --plugin-dir ./forge`. A
 
 - **Skills** (`forge/skills/*/SKILL.md`): User-facing commands — `/forge` (unified analysis + review), `/forge:settings` (nudge frequency config), `/forge:version` (installed version and freshness check)
 - **Agents** (`forge/agents/*.md`): Subagents — `session-analyzer` (LLM analysis pass for deep mode)
-- **Scripts** (`forge/scripts/*.py`): Analysis and lifecycle — `analyze-config.py`, `analyze-transcripts.py`, `analyze-memory.py` (Phase A analyzers), `build-proposals.py` (proposal pipeline + effectiveness tracking), `cache-manager.py` (caching + orchestration), `project_identity.py` (project hash, data dir, find_project_root), `check-pending.py`, `background-analyze.py` (SessionStart hooks), `log-session.sh`, `finalize-proposals.py` (bookkeeping + tracking data), `format-proposals.py` (presentation formatting), `validate-paths.py` (path security validation), `merge-settings.py` (atomic settings.json hook merging), `read-settings.py`, `write-settings.py` (utilities)
+- **Scripts** (`forge/scripts/*.py`): Analysis and lifecycle — `analyze-config.py`, `analyze-transcripts.py`, `analyze-memory.py` (Phase A analyzers), `build-proposals.py` (proposal pipeline + effectiveness tracking), `cache-manager.py` (caching + orchestration), `project_identity.py` (project hash, user/project data dirs, find_project_root), `check-pending.py`, `background-analyze.py` (SessionStart hooks), `log-session.sh`, `finalize-proposals.py` (bookkeeping + tracking data), `format-proposals.py` (presentation formatting), `validate-paths.py` (path security validation), `merge-settings.py` (atomic settings.json hook merging), `read-settings.py`, `write-settings.py` (utilities)
 - **Hooks** (`forge/hooks/hooks.json`): SessionStart (pending check + background analysis), SessionEnd (session logging + cache update)
 - **References** (`forge/references/*.md`): Templates and best practices used during artifact generation
 
@@ -24,6 +24,7 @@ The plugin lives in `forge/` and is tested with `claude --plugin-dir ./forge`. A
 - Session transcript JSONL format is not a stable API — parser must handle format variations gracefully.
 - **Analysis scope is per-project.** All pattern detection is scoped to the current project and its worktrees. Forge never reads transcripts from unrelated projects. Cross-project aggregation is a future opt-in feature only.
 - **Artifacts default to project-level.** All generated artifacts go to `.claude/` (project-level), never `~/.claude/` (user-level). The user can override during review. Forge never suggests user-level on its own.
+- **Storage split.** Feedback data that shapes proposals (dismissed.json, history/applied.json, feedback_signals.json) lives in `.claude/forge/` (project-level, git-tracked, shared across contributors). Personal settings, caches, pending proposals, and session logs live in `~/.claude/forge/projects/<hash>/` (user-level, per-machine).
 
 ## Code Style
 

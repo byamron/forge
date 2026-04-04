@@ -251,6 +251,7 @@ class TestFinalizeRecordsTracking:
 
     def test_tracking_recorded_for_corrections(self, tmp_path, monkeypatch):
         """Applied correction proposals include tracking data."""
+        monkeypatch.setattr(fp, "get_project_data_dir", lambda root: tmp_path)
         monkeypatch.setattr(fp, "get_user_data_dir", lambda root: tmp_path)
         (tmp_path / "history").mkdir()
         (tmp_path / "proposals").mkdir()
@@ -280,6 +281,7 @@ class TestFinalizeRecordsTracking:
 
     def test_no_tracking_for_demotions(self, tmp_path, monkeypatch):
         """Demotion proposals don't get tracking data."""
+        monkeypatch.setattr(fp, "get_project_data_dir", lambda root: tmp_path)
         monkeypatch.setattr(fp, "get_user_data_dir", lambda root: tmp_path)
         (tmp_path / "history").mkdir()
         (tmp_path / "proposals").mkdir()

@@ -188,7 +188,7 @@ class TestFeedbackSignalRecording:
         project = tmp_path / "project"
         project.mkdir()
         dismissed = [{"id": "x", "type": "hook", "reason": "missing_safety"}]
-        with patch.object(fp, "get_user_data_dir", return_value=tmp_path):
+        with patch.object(fp, "get_project_data_dir", return_value=tmp_path):
             fp._record_dismissed(project, dismissed)
         data = json.loads((tmp_path / "dismissed.json").read_text())
         assert data[0]["reason"] == "missing_safety"
@@ -198,7 +198,7 @@ class TestFeedbackSignalRecording:
         project = tmp_path / "project"
         project.mkdir()
         dismissed = [{"id": "x", "type": "rule"}]
-        with patch.object(fp, "get_user_data_dir", return_value=tmp_path):
+        with patch.object(fp, "get_project_data_dir", return_value=tmp_path):
             fp._record_dismissed(project, dismissed)
         data = json.loads((tmp_path / "dismissed.json").read_text())
         assert "reason" not in data[0]
@@ -211,7 +211,7 @@ class TestFeedbackSignalRecording:
         applied = [{"id": "fix-imports", "type": "rule"}]
         all_proposals = [{"id": "fix-imports", "type": "rule",
                           "description": "Fix imports", "evidence_summary": "3x"}]
-        with patch.object(fp, "get_user_data_dir", return_value=tmp_path):
+        with patch.object(fp, "get_project_data_dir", return_value=tmp_path):
             fp._record_applied(project, applied, all_proposals)
         data = json.loads((tmp_path / "history" / "applied.json").read_text())
         assert data[0]["tracking"]["source"] == "correction"
@@ -224,7 +224,7 @@ class TestFeedbackSignalRecording:
         applied = [{"id": "auto-lint", "type": "hook"}]
         all_proposals = [{"id": "auto-lint", "type": "hook",
                           "description": "Lint hook", "evidence_summary": "5x"}]
-        with patch.object(fp, "get_user_data_dir", return_value=tmp_path):
+        with patch.object(fp, "get_project_data_dir", return_value=tmp_path):
             fp._record_applied(project, applied, all_proposals)
         data = json.loads((tmp_path / "history" / "applied.json").read_text())
         assert data[0]["tracking"]["source"] == "post_action"
@@ -237,7 +237,7 @@ class TestFeedbackSignalRecording:
         applied = [{"id": "deploy-skill", "type": "skill"}]
         all_proposals = [{"id": "deploy-skill", "type": "skill",
                           "description": "Deploy", "evidence_summary": "9x"}]
-        with patch.object(fp, "get_user_data_dir", return_value=tmp_path):
+        with patch.object(fp, "get_project_data_dir", return_value=tmp_path):
             fp._record_applied(project, applied, all_proposals)
         data = json.loads((tmp_path / "history" / "applied.json").read_text())
         assert data[0]["tracking"]["source"] == "repeated_prompt"
@@ -503,3 +503,212 @@ class TestBackwardCompatibility:
     def test_compute_low_impact_ratios_empty(self):
         assert bp._compute_low_impact_ratios(None) == {}
         assert bp._compute_low_impact_ratios({}) == {}
+
+
+# ---------------------------------------------------------------------------
+# TestStorageSplit — finalize-proposals.py storage split
+# ---------------------------------------------------------------------------
+
+class TestStorageSplit:
+    """Verify feedback data writes to project-level, personal data to user-level."""
+
+    def test_dismissed_writes_to_project_level(self, tmp_path):
+        """_record_dismissed writes to .claude/forge/dismissed.json."""
+        project = tmp_path / "project"
+        project.mkdir()
+        project_data = project / ".claude" / "forge"
+        dismissed = [{"id": "x", "type": "hook", "reason": "low_impact"}]
+        with patch.object(fp, "get_project_data_dir", return_value=project_data):
+            fp._record_dismissed(project, dismissed)
+        data = json.loads((project_data / "dismissed.json").read_text())
+        assert data[0]["id"] == "x"
+        assert data[0]["reason"] == "low_impact"
+
+    def test_applied_writes_to_project_level(self, tmp_path):
+        """_record_applied writes to .claude/forge/history/applied.json."""
+        project = tmp_path / "project"
+        project.mkdir()
+        project_data = project / ".claude" / "forge"
+        project_data.mkdir(parents=True)
+        applied = [{"id": "fix-imports", "type": "rule"}]
+        all_proposals = [{"id": "fix-imports", "type": "rule",
+                          "description": "Fix", "evidence_summary": "3x"}]
+        with patch.object(fp, "get_project_data_dir", return_value=project_data):
+            fp._record_applied(project, applied, all_proposals)
+        data = json.loads(
+            (project_data / "history" / "applied.json").read_text()
+        )
+        assert data[0]["id"] == "fix-imports"
+
+    def test_feedback_signals_writes_to_project_level(self, tmp_path, monkeypatch):
+        """_write_feedback_signals writes feedback_signals.json to project-level."""
+        project = tmp_path / "project"
+        project.mkdir()
+        project_data = project / ".claude" / "forge"
+        project_data.mkdir(parents=True)
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        outcomes = [
+            {"id": "h1", "status": "dismissed", "type": "hook",
+             "reason": "low_impact"},
+        ]
+        with patch.object(fp, "get_project_data_dir", return_value=project_data):
+            fp._write_feedback_signals(project, outcomes)
+
+        fs_path = project_data / "feedback_signals.json"
+        assert fs_path.is_file()
+        data = json.loads(fs_path.read_text())
+        assert data["dismissal_reasons"]["hook"]["low_impact"] == 1
+
+    def test_legacy_stats_no_feedback_signals(self, tmp_path, monkeypatch):
+        """_update_stats writes legacy counters to user-level WITHOUT feedback_signals."""
+        project = tmp_path / "project"
+        project.mkdir()
+        project_data = project / ".claude" / "forge"
+        project_data.mkdir(parents=True)
+
+        fake_home = tmp_path / "home"
+        (fake_home / ".claude" / "forge").mkdir(parents=True)
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        outcomes = [
+            {"id": "r1", "status": "applied", "type": "rule"},
+            {"id": "h1", "status": "dismissed", "type": "hook",
+             "reason": "low_impact"},
+        ]
+        with patch.object(fp, "get_project_data_dir", return_value=project_data):
+            fp._update_stats(project, outcomes)
+
+        stats_path = fake_home / ".claude" / "forge" / "analyzer-stats.json"
+        stats = json.loads(stats_path.read_text())
+        # Legacy counters present
+        assert stats["corrections"]["approved"] == 1
+        assert stats["post_actions"]["dismissed"] == 1
+        # feedback_signals should NOT be in user-level stats
+        assert "feedback_signals" not in stats
+
+    def test_feedback_signals_migration_from_user_level(self, tmp_path, monkeypatch):
+        """_write_feedback_signals migrates from analyzer-stats.json on first access."""
+        project = tmp_path / "project"
+        project.mkdir()
+        project_data = project / ".claude" / "forge"
+        project_data.mkdir(parents=True)
+
+        fake_home = tmp_path / "home"
+        (fake_home / ".claude" / "forge").mkdir(parents=True)
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        # Pre-existing feedback_signals in user-level stats
+        old_stats = {
+            "version": 2,
+            "feedback_signals": {
+                "category_precision": {"hook": {"approved": 3, "dismissed": 5}},
+                "dismissal_reasons": {"hook": {"low_impact": 4}},
+                "modification_signals": {},
+                "safety_gate": {"triggered": False, "signal_count": 0,
+                                "threshold": 3},
+                "skip_counts": {},
+            },
+        }
+        stats_path = fake_home / ".claude" / "forge" / "analyzer-stats.json"
+        stats_path.write_text(json.dumps(old_stats))
+
+        # Write with new outcome -- should migrate existing data and add to it
+        outcomes = [
+            {"id": "h2", "status": "dismissed", "type": "hook",
+             "reason": "low_impact"},
+        ]
+        with patch.object(fp, "get_project_data_dir", return_value=project_data):
+            fp._write_feedback_signals(project, outcomes)
+
+        fs_path = project_data / "feedback_signals.json"
+        data = json.loads(fs_path.read_text())
+        # Should have accumulated: 4 old + 1 new = 5
+        assert data["dismissal_reasons"]["hook"]["low_impact"] == 5
+        # Category precision should have old data plus new
+        assert data["category_precision"]["hook"]["dismissed"] == 6  # 5 old + 1 new
+
+    def test_pending_stays_user_level(self, tmp_path, monkeypatch):
+        """_update_pending writes to user-level, not project-level."""
+        project = tmp_path / "project"
+        project.mkdir()
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        user_dir = tmp_path / "user_data"
+        user_dir.mkdir()
+
+        proposals = [{"id": "p1", "status": "pending", "type": "skill"}]
+        with patch.object(fp, "get_user_data_dir", return_value=user_dir):
+            fp._update_pending(project, proposals)
+
+        pending_path = user_dir / "proposals" / "pending.json"
+        assert pending_path.is_file()
+        data = json.loads(pending_path.read_text())
+        assert data[0]["id"] == "p1"
+
+    def test_applied_migrates_from_user_level(self, tmp_path, monkeypatch):
+        """_record_applied reads existing data from user-level if project-level empty."""
+        project = tmp_path / "project"
+        project.mkdir()
+        project_data = project / ".claude" / "forge"
+        project_data.mkdir(parents=True)
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        user_dir = tmp_path / "user_data"
+        (user_dir / "history").mkdir(parents=True)
+        (user_dir / "history" / "applied.json").write_text(
+            json.dumps([{"id": "old-artifact", "type": "rule",
+                         "applied_at": "2026-01-01T00:00:00Z"}])
+        )
+
+        applied = [{"id": "new-artifact", "type": "hook"}]
+        all_proposals = [{"id": "new-artifact", "type": "hook",
+                          "description": "Lint", "evidence_summary": "5x"}]
+        with patch.object(fp, "get_project_data_dir", return_value=project_data), \
+             patch.object(fp, "get_user_data_dir", return_value=user_dir):
+            fp._record_applied(project, applied, all_proposals)
+
+        data = json.loads(
+            (project_data / "history" / "applied.json").read_text()
+        )
+        # Should contain both old migrated entry and new one
+        assert len(data) == 2
+        assert data[0]["id"] == "old-artifact"
+        assert data[1]["id"] == "new-artifact"
+
+    def test_dismissed_migrates_from_user_level(self, tmp_path, monkeypatch):
+        """_record_dismissed reads existing data from user-level if project-level empty."""
+        project = tmp_path / "project"
+        project.mkdir()
+        project_data = project / ".claude" / "forge"
+        project_data.mkdir(parents=True)
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        user_dir = tmp_path / "user_data"
+        user_dir.mkdir()
+        (user_dir / "dismissed.json").write_text(
+            json.dumps([{"id": "old-dismissed", "type": "rule",
+                         "dismissed_at": "2026-01-01T00:00:00Z"}])
+        )
+
+        dismissed = [{"id": "new-dismissed", "type": "hook"}]
+        with patch.object(fp, "get_project_data_dir", return_value=project_data), \
+             patch.object(fp, "get_user_data_dir", return_value=user_dir):
+            fp._record_dismissed(project, dismissed)
+
+        data = json.loads((project_data / "dismissed.json").read_text())
+        assert len(data) == 2
+        assert data[0]["id"] == "old-dismissed"
+        assert data[1]["id"] == "new-dismissed"

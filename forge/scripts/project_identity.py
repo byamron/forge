@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
-"""Project identity and user-level data directory resolution for Forge.
+"""Project identity and data directory resolution for Forge.
 
 Centralizes how Forge identifies a project (via git remote URL hash) and
-resolves per-project user-data files under ~/.claude/forge/projects/<hash>/.
+resolves per-project data files at two levels:
 
-This replaces the previous approach of storing user-decision files
-(dismissed.json, settings.json, history/applied.json, proposals/pending.json)
-in .claude/forge/ (per-worktree, gitignored). The new location is shared
-across all worktrees of the same project. Caches and session logs remain
-per-worktree.
+User-level (~/.claude/forge/projects/<hash>/):
+    Personal settings, caches, pending proposals, session logs, analysis lock.
+    Private to each machine/user. Not shared across contributors.
+
+Project-level (<project_root>/.claude/forge/):
+    Feedback data that shapes proposals: dismissed.json, history/applied.json,
+    feedback_signals.json. Git-tracked, shared across all contributors.
 
 Functions:
-    compute_project_hash  -- SHA-256 hash of the cleaned git remote URL
-    get_user_data_dir     -- ~/.claude/forge/projects/<hash>/ with auto-create
-    resolve_user_file     -- migrate-on-read from legacy to new location
+    compute_project_hash    -- SHA-256 hash of the cleaned git remote URL
+    get_user_data_dir       -- ~/.claude/forge/projects/<hash>/ with auto-create
+    get_project_data_dir    -- <root>/.claude/forge/ with auto-create
+    resolve_user_file       -- migrate-on-read from legacy .claude/forge/ to user-level
+    resolve_project_file    -- migrate-on-read from user-level to project-level
 """
 
 import hashlib
@@ -135,6 +139,79 @@ def get_user_data_dir(project_root: Path) -> Path:
     data_dir = Path.home() / ".claude" / "forge" / "projects" / project_hash
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
+
+
+def get_project_data_dir(project_root: Path) -> Path:
+    """Return the project-level Forge data directory (.claude/forge/).
+
+    This directory is git-tracked and shared across all contributors.
+    Contains feedback data that shapes proposals: dismissed.json,
+    history/applied.json, feedback_signals.json.
+
+    Args:
+        project_root: The root directory of the project.
+
+    Returns:
+        The resolved Path to the project-level data directory.
+    """
+    data_dir = project_root / ".claude" / "forge"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir
+
+
+def resolve_project_file(project_root: Path, relative_path: str) -> Path:
+    """Resolve a project-level data file, migrating from user-level if needed.
+
+    The project-level location is ``<project_root>/.claude/forge/``.
+    The user-level location is ``~/.claude/forge/projects/<hash>/``.
+
+    If the file exists at the project location, it is returned immediately.
+    If the file only exists at the user-level location, it is copied to the
+    project location. The user-level copy is NOT deleted -- other worktrees
+    or older Forge versions may still read from there.
+    If neither location has the file, the project-level path is returned
+    for the caller to create or handle absence.
+
+    Args:
+        project_root: The root directory of the project.
+        relative_path: Path relative to the data directory
+            (e.g., ``"dismissed.json"`` or ``"history/applied.json"``).
+
+    Returns:
+        The Path to the file at the project-level location.
+
+    Raises:
+        ValueError: If ``relative_path`` contains ``..`` (path traversal).
+    """
+    if ".." in relative_path:
+        raise ValueError(
+            "relative_path must not contain '..': {}".format(relative_path)
+        )
+
+    new_path = get_project_data_dir(project_root) / relative_path
+
+    # Already at project location -- return immediately
+    if new_path.is_file():
+        return new_path
+
+    # Try migrating from user-level location
+    user_path = get_user_data_dir(project_root) / relative_path
+    if user_path.is_file():
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            data = user_path.read_bytes()
+            new_path.write_bytes(data)
+            # Do NOT delete the user-level copy -- other worktrees or
+            # older Forge versions may still reference it.
+        except OSError as exc:
+            print(
+                "Warning: migration of {} to project-level failed: {}".format(
+                    user_path, exc
+                ),
+                file=sys.stderr,
+            )
+
+    return new_path
 
 
 def resolve_user_file(project_root: Path, relative_path: str) -> Path:
