@@ -33,10 +33,14 @@ python3 "<FORGE_ROOT>/scripts/cache-manager.py" --proposals --plugin-root "<FORG
 
 Returns JSON with `proposals`, `context_health`, `conversation_pairs_sample`, and `deep_analysis_cache`.
 
-## Step 1b: Apply quality filter from deep analysis
+## Step 1b: Apply quality filter
 
 1. If `deep_analysis_cache` is not null: use its `filtered_proposals` as the proposal set (these are the script proposals that passed the LLM quality gate). Append `additional_proposals` after them. Sort by impact (high first). This replaces the raw script proposals entirely. If `filtered_proposals` is empty but `additional_proposals` has items, use `additional_proposals` alone — the LLM filtered out all script proposals but found its own patterns.
-2. If `deep_analysis_cache` is null: the LLM quality filter has not run yet for this analysis cycle. Use the raw script `proposals` directly. Note to the user: "Forge's quality filter will run in the background for your next session."
+2. If `deep_analysis_cache` is null: the quality filter hasn't run yet (first time on this project, or background analysis is still in progress). **Run it now synchronously:**
+   - Tell the user: "First-time setup — Forge is analyzing your session history. This may take a few minutes the first time, but will run instantly on future sessions."
+   - Spawn the `session-analyzer` agent (subagent_type: `session-analyzer`) with: the `proposals` array from Step 1, the `context_health`, and the `conversation_pairs_sample`. Wait for it to complete.
+   - Use its `filtered_proposals` as the proposal set, append `additional_proposals`. Sort by impact.
+   - If the agent returns no results or fails, fall back to the raw script `proposals` from Step 1.
 
 ## Step 2: Format and present results
 
