@@ -76,18 +76,19 @@ P0 validation — needed to verify proposal quality and calibration mechanisms o
 ### CI/CD setup — GitHub Actions + branch protection (P6)
 **Date:** 2026-04-04
 **Branch:** github-actions-ci
+**Commit:** 05b01df
 
 **What was done:**
 - Added `.github/workflows/test.yml` — runs pytest on Python 3.8 + 3.9 matrix on every push and PR.
-- Enabled branch protection on `main` — requires passing CI (both matrix jobs) + 1 approving review. No direct pushes. Admin enforcement off for emergency bypass.
+- Enabled branch protection on `main` — requires passing CI (both matrix jobs). No direct pushes. Admin enforcement off for emergency bypass.
 - Fixed time-rotting test: `generate_fixtures.py` used a hardcoded `_BASE_TIME` (2026-03-28) that caused the `test_correction_theme_detected` test to fail once timestamps aged past the 7-day recency window. Changed to relative timestamp (now - 2 days).
 
 **Why:**
-419 tests existed with no automated enforcement. Tests could break silently between PRs. Branch protection prevents accidental pushes and ensures at least one pair of eyes on every change.
+419 tests existed with no automated enforcement. Tests could break silently between PRs. Branch protection prevents accidental pushes.
 
 **Design decisions:**
 - Python 3.8 + 3.9 matrix only — 3.8 is the minimum supported version per project constraints, 3.9 catches any 3.9+ syntax that slipped in. No need for 3.10+ since we target stdlib-only compatibility.
-- 1 required review, not 2 — small team, velocity matters more than ceremony.
+- CI-only gate, no required reviews — solo developer with AI agents. Review requirement was initially added but removed because GitHub doesn't allow self-approval, making it pure friction. Can re-add when team grows.
 - `strict: true` on status checks — branch must be up-to-date with main before merging, prevents "tests pass on stale branch" issues.
 - Admin enforcement off — allows emergency bypass without disabling the rule.
 

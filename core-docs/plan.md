@@ -581,7 +581,7 @@ No new scripts needed — the SKILL.md can read `applied.json` directly and form
 
 **Shipped:**
 - `.github/workflows/test.yml` — pytest on Python 3.8 + 3.9 matrix, triggers on push and PR
-- Branch protection on `main` — requires passing CI + 1 approving review, no direct pushes
+- Branch protection on `main` — requires passing CI, no direct pushes
 - Fixed time-rotting test in `generate_fixtures.py` (`_BASE_TIME` now relative to current time)
 
 **Acceptance criteria:** Tests run on PR, fail blocks merge. ✅
@@ -685,7 +685,7 @@ No new scripts needed — the SKILL.md can read `applied.json` directly and form
 | 4.3 Reliability & error visibility | ❌ P3 | Schema validation, /forge --diagnose, mypy |
 | 4.4 Analyzer unit tests | ❌ P4 | analyze-config.py and analyze-memory.py edge cases |
 | 4.5 Explain mode | ❌ P5 | /forge --explain with evidence trail |
-| 4.6 CI/CD | ✅ Done | GitHub Actions, Python 3.8 + 3.9 matrix, branch protection on main |
+| 4.6 CI/CD | ✅ Done | GitHub Actions, Python 3.8 + 3.9 matrix, CI-only branch protection on main |
 | 4.7 Deep analysis e2e | ❌ P7 | Verify --deep works end-to-end |
 
 ### Phase 5: Advanced (v1.0) — Not started
