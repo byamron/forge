@@ -37,6 +37,33 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### CI/CD setup — GitHub Actions + branch protection (P6)
+**Date:** 2026-04-04
+**Branch:** github-actions-ci
+
+**What was done:**
+- Added `.github/workflows/test.yml` — runs pytest on Python 3.8 + 3.9 matrix on every push and PR.
+- Enabled branch protection on `main` — requires passing CI (both matrix jobs) + 1 approving review. No direct pushes. Admin enforcement off for emergency bypass.
+- Fixed time-rotting test: `generate_fixtures.py` used a hardcoded `_BASE_TIME` (2026-03-28) that caused the `test_correction_theme_detected` test to fail once timestamps aged past the 7-day recency window. Changed to relative timestamp (now - 2 days).
+
+**Why:**
+419 tests existed with no automated enforcement. Tests could break silently between PRs. Branch protection prevents accidental pushes and ensures at least one pair of eyes on every change.
+
+**Design decisions:**
+- Python 3.8 + 3.9 matrix only — 3.8 is the minimum supported version per project constraints, 3.9 catches any 3.9+ syntax that slipped in. No need for 3.10+ since we target stdlib-only compatibility.
+- 1 required review, not 2 — small team, velocity matters more than ceremony.
+- `strict: true` on status checks — branch must be up-to-date with main before merging, prevents "tests pass on stale branch" issues.
+- Admin enforcement off — allows emergency bypass without disabling the rule.
+
+**Technical decisions:**
+- `_BASE_TIME` fix uses `datetime.now(tz=timezone.utc) - timedelta(days=2)` — keeps all synthetic timestamps within the 7-day recency window regardless of when tests run. The 2-day offset ensures sessions span hours 0-14 without crossing into the future.
+
+**Tradeoffs discussed:**
+- Considered adding mypy to CI (mentioned in P3) — deferred since P3 hasn't started and adding mypy to a codebase without type annotations would just be noise.
+- Considered more Python versions in the matrix — diminishing returns for a stdlib-only project. 3.8 catches the floor, 3.9 catches one step up.
+
+---
+
 ### LLM quality gate always-on (v0.3.7)
 **Date:** 2026-04-04
 **Branch:** proposal-feedback-loop

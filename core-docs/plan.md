@@ -483,33 +483,17 @@ No new scripts needed — the SKILL.md can read `applied.json` directly and form
 ---
 
 ### P6. CI/CD setup
-**Status:** Not started
+**Status:** Complete
 **Priority:** MEDIUM — infrastructure.
 **Goal:** Automated test runs on every PR.
 **Impacts:** Reliability
 
-**Implementation plan:**
+**Shipped:**
+- `.github/workflows/test.yml` — pytest on Python 3.8 + 3.9 matrix, triggers on push and PR
+- Branch protection on `main` — requires passing CI + 1 approving review, no direct pushes
+- Fixed time-rotting test in `generate_fixtures.py` (`_BASE_TIME` now relative to current time)
 
-**New file:** `.github/workflows/test.yml`
-```yaml
-name: Tests
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.8", "3.9"]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - run: pip install pytest
-      - run: python -m pytest tests/ -v
-```
-
-**Acceptance criteria:** Tests run on PR, fail blocks merge.
+**Acceptance criteria:** Tests run on PR, fail blocks merge. ✅
 
 ---
 
@@ -610,7 +594,7 @@ jobs:
 | 4.3 Reliability & error visibility | ❌ P3 | Schema validation, /forge --diagnose, mypy |
 | 4.4 Analyzer unit tests | ❌ P4 | analyze-config.py and analyze-memory.py edge cases |
 | 4.5 Explain mode | ❌ P5 | /forge --explain with evidence trail |
-| 4.6 CI/CD | ❌ P6 | GitHub Actions, Python 3.8 + 3.9 matrix |
+| 4.6 CI/CD | ✅ Done | GitHub Actions, Python 3.8 + 3.9 matrix, branch protection on main |
 | 4.7 Deep analysis e2e | ❌ P7 | Verify --deep works end-to-end |
 
 ### Phase 5: Advanced (v1.0) — Not started
