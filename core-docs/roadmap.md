@@ -676,18 +676,45 @@ After deploying an artifact, track whether the pattern that triggered it (e.g., 
 
 ---
 
-## Phase 4: Advanced (v1.0)
+## Phase 4: Quality & Polish (v0.4) — Added 2026-04-03
 
-### Task 4.1: Cross-Project Pattern Aggregation
-Detect patterns that appear across multiple projects. Generate user-level artifacts in `~/.claude/CLAUDE.md` or `~/.claude/rules/`.
+**Goal:** Validate proposal quality on real projects, make Forge feel like a living system, harden reliability. Prioritized by impact on accuracy, UX, and user trust. Added after comprehensive code + UX review. Net new surface area: 1 script (`diagnose.py`). Zero new skills, agents, or hooks.
 
-### Task 4.2: Explain Mode
-User can ask "why does this rule exist?" and Forge shows the original evidence and proposal that generated it, pulled from `.claude/forge/history/`.
+### Task 4.0: Real-World Validation Sprint (P0 — Accuracy)
+Run `/forge` on 3+ real projects. Measure proposal acceptance rate. Validate feedback loop calibration (impact deflation, safety gate, skip decay). Document failure modes. Tune thresholds based on data. Target >50% acceptance rate on second pass.
 
-### Task 4.3: Self-Cost Tracking
+### Task 4.1: Ambient Presence & Proactive Surfacing (P1 — UX)
+Enrich `check-pending.py` to surface high-confidence proposals at session start (default: on, configurable via `proactive_proposals` setting). Add effectiveness alerts when applied artifacts stop working. Add ambient health signal showing tracked sessions and artifact status. Update product framing in README.
+
+### Task 4.2: Proposal Presentation Improvements (P2 — UX, Accuracy)
+"What changed since last review?" section via `format-proposals.py`. Increase evidence truncation 60→80/100 chars. Feedback visibility: show when impact calibration or safety gate are active. Complex proposal previews for demotions/reference extractions.
+
+### Task 4.3: Reliability & Error Visibility (P3 — Accuracy, UX)
+Input schema validation on script entry points (fail loudly on bad data). New `diagnose.py` script for `/forge --diagnose` (cache state, lock files, feedback signals, settings). mypy return type annotations on major functions.
+
+### Task 4.4: Analyzer Unit Tests (P4 — Accuracy)
+Dedicated unit tests for `analyze-config.py` and `analyze-memory.py` edge cases. Target 40-60 new tests covering empty projects, malformed files, unusual tech stacks, memory classification boundaries.
+
+### Task 4.5: Explain Mode (P5 — UX)
+`/forge --explain <path>` flag on existing skill. Reads `applied.json`, shows original evidence and effectiveness status. 10-15 lines added to SKILL.md Step 0. No new scripts.
+
+### Task 4.6: CI/CD Setup (P6 — Reliability)
+GitHub Actions: pytest on Python 3.8 + 3.9 matrix. Fail PR on test failure.
+
+### Task 4.7: Deep Analysis E2E Validation (P7 — Completeness)
+Manual validation that `analysis_depth: "deep"` works end-to-end. Verify background LLM invocation, cache writing, merge rules, two-phase question flow.
+
+---
+
+## Phase 5: Advanced (v1.0)
+
+### Task 5.1: Cross-Project Pattern Aggregation
+Detect patterns that appear across multiple projects. Generate user-level artifacts in `~/.claude/CLAUDE.md` or `~/.claude/rules/`. Opt-in only; requires privacy design.
+
+### Task 5.2: Self-Cost Tracking
 Report token consumption of Forge's own analysis in `/forge:status`, alongside estimated savings from generated artifacts.
 
-### Task 4.4: Export/Share
+### Task 5.3: Export/Share
 Export a project's Forge-generated configuration as a shareable package (zip of .claude/ contents with README explaining each artifact).
 
 ---

@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-from project_identity import get_user_data_dir
+from project_identity import get_project_data_dir, get_user_data_dir
 
 
 # Maps proposal types to analyzer stat categories
@@ -74,13 +74,22 @@ def _update_pending(project_root: Path, all_proposals: List[Dict]) -> None:
 
 def _record_applied(project_root: Path, applied: List[Dict],
                     all_proposals: List[Dict]) -> None:
-    """Append applied proposals to history with triggering pattern data."""
+    """Append applied proposals to history with triggering pattern data.
+
+    Writes to project-level (.claude/forge/history/applied.json) so that
+    provenance data is git-tracked and shared across contributors.
+    Falls back to reading from user-level on first migration.
+    """
     if not applied:
         return
-    history_path = get_user_data_dir(project_root) / "history" / "applied.json"
+    history_path = get_project_data_dir(project_root) / "history" / "applied.json"
     existing = _load_json(history_path)
     if not isinstance(existing, list):
-        existing = []
+        # Try migrating from user-level on first access
+        user_path = get_user_data_dir(project_root) / "history" / "applied.json"
+        existing = _load_json(user_path)
+        if not isinstance(existing, list):
+            existing = []
     now = datetime.datetime.utcnow().isoformat() + "Z"
 
     # Build lookup from full proposals for evidence data
@@ -121,13 +130,22 @@ def _record_applied(project_root: Path, applied: List[Dict],
 
 
 def _record_dismissed(project_root: Path, dismissed: List[Dict]) -> None:
-    """Append dismissed proposals to dismissed.json."""
+    """Append dismissed proposals to dismissed.json.
+
+    Writes to project-level (.claude/forge/dismissed.json) so that
+    dismissals affect what all contributors see.
+    Falls back to reading from user-level on first migration.
+    """
     if not dismissed:
         return
-    dismissed_path = get_user_data_dir(project_root) / "dismissed.json"
+    dismissed_path = get_project_data_dir(project_root) / "dismissed.json"
     existing = _load_json(dismissed_path)
     if not isinstance(existing, list):
-        existing = []
+        # Try migrating from user-level on first access
+        user_path = get_user_data_dir(project_root) / "dismissed.json"
+        existing = _load_json(user_path)
+        if not isinstance(existing, list):
+            existing = []
     now = datetime.datetime.utcnow().isoformat() + "Z"
     for p in dismissed:
         entry = {
@@ -236,8 +254,48 @@ def _update_feedback_signals(stats: Dict, outcomes: List[Dict]) -> None:
     }
 
 
-def _update_stats(outcomes: List[Dict]) -> None:
-    """Update analyzer-stats.json with all outcomes at once."""
+def _write_feedback_signals(project_root: Path, outcomes: List[Dict]) -> None:
+    """Write feedback_signals.json to the project-level data directory.
+
+    This file is shared across contributors (git-tracked) and contains
+    calibration data: category precision, dismissal reasons, modification
+    signals, skip counts, and safety gate state.
+
+    On first access, migrates feedback_signals from user-level
+    analyzer-stats.json if the project-level file doesn't exist yet.
+    """
+    fs_path = get_project_data_dir(project_root) / "feedback_signals.json"
+    fs_data = {}  # type: Dict[str, Any]
+
+    # Try loading existing project-level feedback signals
+    existing = _load_json(fs_path)
+    if isinstance(existing, dict):
+        fs_data = existing
+    else:
+        # Migrate from user-level analyzer-stats.json on first access
+        stats_path = Path.home() / ".claude" / "forge" / "analyzer-stats.json"
+        if stats_path.is_file():
+            stats = _load_json(stats_path)
+            if isinstance(stats, dict) and "feedback_signals" in stats:
+                fs_data = stats["feedback_signals"]
+
+    # Wrap in a temporary dict so _update_feedback_signals can operate on it
+    wrapper = {"feedback_signals": fs_data}
+    _update_feedback_signals(wrapper, outcomes)
+
+    _write_json_atomic(fs_path, wrapper["feedback_signals"])
+
+
+def _update_stats(project_root: Path, outcomes: List[Dict]) -> None:
+    """Update analyzer-stats.json (user-level) and feedback_signals.json (project-level).
+
+    Legacy counters (corrections, post_actions, repeated_prompts, theme_outcomes,
+    suppressed_themes) stay in ~/.claude/forge/analyzer-stats.json (user-level).
+
+    Feedback signals (category precision, dismissal reasons, modification
+    signals, skip counts, safety gate) are written to
+    .claude/forge/feedback_signals.json (project-level, git-tracked).
+    """
     stats_path = Path.home() / ".claude" / "forge" / "analyzer-stats.json"
     stats = {
         "version": 2,
@@ -257,7 +315,7 @@ def _update_stats(outcomes: List[Dict]) -> None:
     for outcome in outcomes:
         status = outcome.get("status", "pending")
         if status == "pending":
-            continue  # Skipped — no legacy stats update
+            continue  # Skipped -- no legacy stats update
 
         proposal_id = outcome.get("id", "")
         proposal_type = outcome.get("type", "")
@@ -282,12 +340,16 @@ def _update_stats(outcomes: List[Dict]) -> None:
             if proposal_id not in suppressed:
                 suppressed.append(proposal_id)
 
-    # Update feedback signals (per-category precision, reasons, modifications)
-    _update_feedback_signals(stats, outcomes)
-
+    # Write legacy stats to user-level (no feedback_signals here)
+    # Remove feedback_signals from user-level stats if present (leftover from
+    # pre-split versions) -- the authoritative copy is now project-level.
+    stats.pop("feedback_signals", None)
     stats["version"] = 2
     stats["last_updated"] = now
     _write_json_atomic(stats_path, stats)
+
+    # Write feedback signals to project-level
+    _write_feedback_signals(project_root, outcomes)
 
 
 def main() -> None:
@@ -320,7 +382,7 @@ def main() -> None:
     _update_pending(project_root, all_proposals)
     _record_applied(project_root, applied, all_proposals)
     _record_dismissed(project_root, dismissed)
-    _update_stats(outcomes)
+    _update_stats(project_root, outcomes)
 
     result = {
         "applied": len(applied),

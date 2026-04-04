@@ -11,7 +11,7 @@ Forge's data access is equivalent to Claude Code's own — the plugin does not g
 
 ## Write boundary
 
-All file writes are restricted to `.claude/` (project-level config — rules, skills, agents, settings), `CLAUDE.md` at the project root, and `~/.claude/forge/projects/<hash>/` (all Forge runtime data — decisions, caches, session log, shared across worktrees). Forge does not write to `.claude/forge/` in the project directory. Forge never writes to:
+All file writes are restricted to `.claude/` (project-level config — rules, skills, agents, settings), `.claude/forge/` (project-level feedback data — dismissed.json, history/applied.json, feedback_signals.json; git-tracked, shared across contributors), `CLAUDE.md` at the project root, and `~/.claude/forge/projects/<hash>/` (personal runtime data — settings, caches, pending proposals, session log). Forge never writes to:
 - Source code directories
 - User-level config other than `~/.claude/forge/` (the user can choose to move artifacts elsewhere, but Forge never suggests it)
 - Absolute paths or paths containing `..`

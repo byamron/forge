@@ -1638,7 +1638,9 @@ def main():
     parser.add_argument("--applied", type=str, default=None,
                         help="Path to applied history JSON")
     parser.add_argument("--stats", type=str, default=None,
-                        help="Path to analyzer-stats.json for feedback signals")
+                        help="Path to analyzer-stats.json (legacy, extracts feedback_signals)")
+    parser.add_argument("--feedback-signals", type=str, default=None,
+                        help="Path to feedback_signals.json (project-level, preferred)")
     args = parser.parse_args()
 
     if args.combined:
@@ -1658,9 +1660,14 @@ def main():
     applied = (_load_json_list(args.applied)
                if args.applied else [])
 
-    # Load feedback signals from analyzer-stats.json
+    # Load feedback signals -- prefer project-level file, fall back to stats
     fs = None  # type: Optional[Dict]
-    if args.stats:
+    if args.feedback_signals:
+        fs = _load_json_file(args.feedback_signals)
+        # feedback_signals.json is the signals dict directly (not nested)
+        if not fs:
+            fs = None
+    elif args.stats:
         stats_data = _load_json_file(args.stats)
         fs = stats_data.get("feedback_signals")
 

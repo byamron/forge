@@ -37,6 +37,70 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Storage split: personal vs shared project data (v0.3.6) `SAFETY`
+**Date:** 2026-04-03
+**Branch:** proposal-feedback-loop
+
+**What was done:**
+Implemented the storage split: feedback data that shapes proposals now lives in `.claude/forge/` (project-level, git-tracked, shared across contributors). Personal settings, caches, pending proposals, and session logs stay in `~/.claude/forge/projects/<hash>/` (user-level, per-machine).
+
+Changes:
+- Added `get_project_data_dir()` and `resolve_project_file()` to `project_identity.py`
+- Updated `finalize-proposals.py`: dismissed.json and history/applied.json write to project-level; feedback_signals.json extracted from analyzer-stats.json into its own project-level file; legacy counters stay user-level
+- Updated `build-proposals.py`: added `--feedback-signals` CLI arg for project-level file, falls back to `--stats` (legacy)
+- Updated `cache-manager.py`: reads dismissed/applied/feedback_signals from project-level paths
+- Updated security.md write boundary to include `.claude/forge/`
+- 18 new tests (399 total), all passing
+
+**Why:**
+If one contributor dismisses a proposal or the safety gate activates, that should affect what all contributors see. Previously everything lived in `~/.claude/forge/` (per-user, per-machine) — feedback was lost on clone, collaborators couldn't share calibration. Artifacts Forge creates are git-tracked in `.claude/`, but provenance (`applied.json`) was not.
+
+**Design decisions:**
+- Shared (`.claude/forge/`): dismissed.json, history/applied.json, feedback_signals.json
+- Personal (`~/.claude/forge/`): settings.json, cache/, pending.json, session logs
+- feedback_signals extracted from analyzer-stats.json into its own file
+- `resolve_project_file()` copies from user-level to project-level on first access but does NOT delete the user-level copy (other worktrees or older versions may read it)
+
+**Technical decisions:**
+- New `resolve_project_file()` function parallels existing `resolve_user_file()` but migrates in the opposite direction (user-level -> project-level) and preserves source
+- `_record_applied()` and `_record_dismissed()` try reading from user-level as fallback when project-level is empty (inline migration without needing `resolve_project_file` for the write path)
+- `_write_feedback_signals()` wraps signals in a temporary dict so `_update_feedback_signals()` can operate unchanged
+- `_update_stats()` strips `feedback_signals` key from user-level stats to prevent stale data
+
+**Tradeoffs discussed:**
+- Git pollution from JSON churn: accepted because files are small diffs in `.claude/forge/`, and invisible feedback that doesn't transfer is worse
+- Could delete user-level copies after migration: rejected because other worktrees or older Forge versions may still read from there
+- Could store in `.claude/forge/.gitignore`'d subdirs for ephemeral data: rejected as over-engineering; the personal/shared split is clean enough
+
+---
+
+### Phase 4 roadmap: Quality & Polish (post-review reprioritization)
+**Date:** 2026-04-03
+**Branch:** proposal-feedback-loop
+
+**What was done:**
+Comprehensive code review (2 staff engineers, 2 UX designers) followed by roadmap reprioritization. Phase 3 declared complete. Phase 4 (Quality & Polish) scoped with 8 items (P0-P7) ordered by impact on accuracy, UX, reliability, and completeness. Old Phase 4 (cross-project aggregation, export) pushed to Phase 5.
+
+**Why:**
+User reported that Forge doesn't feel like a living system despite hooks running every session. Proposals had exaggerated impact and missing safety steps. The gap between "working tool" and "autonomous documentation system" is primarily a presentation layer problem — the data layer works, but nothing surfaces it proactively enough.
+
+**Design decisions:**
+- Proactive proposals at session start (default: on) rather than waiting for manual `/forge`. Top 1-2 high-confidence findings presented inline. Configurable via `proactive_proposals` setting for users who prefer the current nudge-only behavior.
+- Real-world validation (P0) blocks everything else. Classifier accuracy (100% precision, 86.7% recall) doesn't prove pipeline quality — need to measure proposal acceptance rate on real projects.
+- Zero new skills/agents/hooks. One new script (`diagnose.py`). All improvements modify existing files. Surface area stays minimal.
+
+**Technical decisions:**
+- `check-pending.py` becomes the proactive presentation engine: reads cached proposals, filters for high-confidence, emits rich systemMessage. No new hooks needed — the existing SessionStart hook already runs it.
+- "What changed" tracking via lightweight `last-run.json` cache comparing proposal IDs between `/forge` runs. Avoids full diffing.
+- Schema validation at script entry points (not deep validation) — check required top-level keys before processing.
+
+**Tradeoffs discussed:**
+- Full autonomous apply vs proactive-but-ask: chose proactive-but-ask. Even high-confidence proposals should require user approval before writing files. Forge suggests; user decides.
+- New `/forge:diagnose` skill vs `--diagnose` flag: chose flag on existing skill. One less skill to maintain, clearer that diagnostics are a mode of `/forge` not a separate tool.
+- Deep schema validation vs top-level key checks: chose top-level. Deep validation adds maintenance cost and couples scripts to each other's output format. Top-level catches the real bugs (missing fields) without the overhead.
+
+---
+
 ### Qualitative proposal feedback loop (v0.3.4)
 **Date:** 2026-04-01
 **Branch:** proposal-feedback-loop
