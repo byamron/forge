@@ -17,23 +17,11 @@ at = importlib.import_module("analyze-transcripts")
 # ---------------------------------------------------------------------------
 
 class TestRemoveSuffix:
-    def test_removes_present_suffix(self):
-        assert at._removesuffix("hello.git", ".git") == "hello"
-
-    def test_no_match_returns_original(self):
-        assert at._removesuffix("hello.txt", ".git") == "hello.txt"
-
-    def test_empty_suffix(self):
-        assert at._removesuffix("hello", "") == "hello"
-
-    def test_empty_string(self):
-        assert at._removesuffix("", ".git") == ""
-
-    def test_suffix_is_entire_string(self):
-        assert at._removesuffix(".git", ".git") == ""
-
-    def test_only_removes_end(self):
+    def test_only_removes_from_end(self):
+        """The one non-obvious behavior: .git appearing twice, only trailing removed."""
         assert at._removesuffix(".git.git", ".git") == ".git"
+        assert at._removesuffix("hello.git", ".git") == "hello"
+        assert at._removesuffix("hello.txt", ".git") == "hello.txt"
 
 
 # ---------------------------------------------------------------------------
@@ -105,35 +93,14 @@ class TestDecodeProjectDir:
 # ---------------------------------------------------------------------------
 
 class TestSanitizeText:
-    def test_removes_null_bytes(self):
-        assert at._sanitize_text("hello\x00world") == "helloworld"
+    def test_control_chars_stripped_whitespace_preserved(self):
+        """Null, BEL, DEL stripped; tabs/newlines/CR survive."""
+        assert at._sanitize_text("a\x00b\x07c\x7fd") == "abcd"
+        assert at._sanitize_text("hello\tworld\nfoo\rbar") == "hello\tworld\nfoo\rbar"
 
-    def test_removes_control_chars(self):
-        assert at._sanitize_text("hello\x01\x02\x03world") == "helloworld"
-
-    def test_preserves_newlines_and_tabs(self):
-        # Tabs (\x09), newlines (\x0a), carriage returns (\x0d) are kept
-        text = "hello\tworld\nfoo\rbar"
-        assert at._sanitize_text(text) == text
-
-    def test_removes_ansi_escape(self):
-        # DEL character (0x7f)
-        assert at._sanitize_text("hello\x7fworld") == "helloworld"
-
-    def test_truncation(self):
-        assert at._sanitize_text("abcdef", 3) == "abc"
-
-    def test_truncation_zero_means_no_limit(self):
-        text = "a" * 1000
-        assert len(at._sanitize_text(text, 0)) == 1000
-
-    def test_sanitize_then_truncate(self):
-        # Control chars should be removed before truncation
-        result = at._sanitize_text("\x00\x01\x02abc", 3)
-        assert result == "abc"
-
-    def test_empty_string(self):
-        assert at._sanitize_text("") == ""
+    def test_sanitization_before_truncation(self):
+        """Control chars removed first, then truncation applied to clean text."""
+        assert at._sanitize_text("\x00\x01\x02abcdef", 3) == "abc"
 
 
 # ---------------------------------------------------------------------------

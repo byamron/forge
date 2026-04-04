@@ -52,7 +52,8 @@ class ProjectProfile:
 # Timestamp helpers
 # ---------------------------------------------------------------------------
 
-_BASE_TIME = datetime(2026, 3, 28, 10, 0, 0, tzinfo=timezone.utc)
+# Use a recent base time so recency scoring doesn't decay as real time passes.
+_BASE_TIME = datetime.now(timezone.utc).replace(hour=10, minute=0, second=0, microsecond=0) - timedelta(days=2)
 
 
 def _ts(session_idx: int = 0, turn_idx: int = 0, offset_secs: int = 0) -> str:
