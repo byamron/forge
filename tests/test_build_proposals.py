@@ -120,20 +120,26 @@ class TestDemotionProposals:
     def _config_with_demotions(self, claude_md_to_rule=None,
                                 rule_to_reference=None,
                                 claude_md_verbose_to_reference=None,
-                                over_budget=False):
+                                over_budget=False,
+                                claude_md_lines=None):
         """Build a config dict with demotion_candidates."""
         demotable = claude_md_to_rule or []
         verbose = claude_md_verbose_to_reference or []
+        if claude_md_lines is None:
+            claude_md_lines = 300 if over_budget else 210
         return {
             "existing_skills": [],
             "existing_agents": [],
             "existing_hooks": [],
+            "context_budget": {
+                "claude_md_lines": claude_md_lines,
+            },
             "demotion_candidates": {
                 "claude_md_to_rule": demotable,
                 "rule_to_reference": rule_to_reference or [],
                 "claude_md_verbose_to_reference": verbose,
                 "budget": {
-                    "claude_md_lines": 300 if over_budget else 100,
+                    "claude_md_lines": claude_md_lines,
                     "over_budget": over_budget,
                     "total_demotable_lines": sum(
                         len(g["entries"]) for g in demotable
@@ -792,3 +798,173 @@ class TestStalenessDetection:
         health = bp._build_context_health(config, stale)
         assert health["stale_artifacts_count"] == 1
         assert "stale" in health["summary"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Staleness ratio-based tests
+# ---------------------------------------------------------------------------
+
+class TestStalenessRatio:
+    """Verify ratio-based staleness detection (not absolute count)."""
+
+    def _base_config(self, rules=None):
+        return {
+            "existing_skills": [],
+            "existing_agents": [],
+            "existing_hooks": [],
+            "existing_rules": rules or [],
+            "context_budget": {},
+            "tech_stack": {},
+        }
+
+    def _make_rule(self, name="test-rule"):
+        return {
+            "name": name,
+            "content": "Unique xyzzyfoo guidance for {} only".format(name),
+            "path": ".claude/rules/{}.md".format(name),
+            "format": "rule",
+            "paths_frontmatter": [],
+        }
+
+    def _transcripts_with_partial_refs(self, total, referenced, rule_name):
+        """Build transcripts where rule_name appears in `referenced` of `total` sessions."""
+        index = {}
+        for i in range(total):
+            tokens = ["generic", "coding", "session"]
+            if i < referenced:
+                tokens.append(rule_name)
+            index["session-{}".format(i)] = tokens
+        return {
+            "sessions_analyzed": total,
+            "session_text_index": index,
+            "session_tool_paths": {},
+            "candidates": {},
+        }
+
+    def test_staleness_ratio_not_stale_at_45_percent(self):
+        """13 refs in 29 sessions (45%) -> NOT stale (ratio 0.45 >= 0.25)."""
+        rule = self._make_rule("python-scripts")
+        transcripts = self._transcripts_with_partial_refs(29, 13, "python-scripts")
+        config = self._base_config(rules=[rule])
+        stale = bp._build_from_staleness(config, transcripts)
+        assert len(stale) == 0
+
+    def test_staleness_ratio_stale_at_10_percent(self):
+        """2 refs in 20 sessions (10%) -> stale (ratio 0.10 < 0.25)."""
+        rule = self._make_rule("old-lint")
+        transcripts = self._transcripts_with_partial_refs(20, 2, "old-lint")
+        config = self._base_config(rules=[rule])
+        stale = bp._build_from_staleness(config, transcripts)
+        assert len(stale) == 1
+        assert "old-lint" in stale[0]["description"]
+
+    def test_staleness_ratio_boundary_at_25_percent(self):
+        """5 refs in 20 sessions (25%) -> NOT stale (ratio 0.25 = boundary)."""
+        rule = self._make_rule("boundary-rule")
+        transcripts = self._transcripts_with_partial_refs(20, 5, "boundary-rule")
+        config = self._base_config(rules=[rule])
+        stale = bp._build_from_staleness(config, transcripts)
+        assert len(stale) == 0
+
+    def test_staleness_zero_refs_is_stale(self):
+        """0 refs in 15 sessions -> stale."""
+        rule = self._make_rule("dead-rule")
+        transcripts = self._transcripts_with_partial_refs(15, 0, "dead-rule")
+        config = self._base_config(rules=[rule])
+        stale = bp._build_from_staleness(config, transcripts)
+        assert len(stale) == 1
+        assert stale[0]["impact"] == "high"
+
+
+# ---------------------------------------------------------------------------
+# Demotion context-pressure scaling tests
+# ---------------------------------------------------------------------------
+
+class TestDemotionContextScaling:
+    """Verify demotion impact scales with CLAUDE.md context pressure."""
+
+    def _config_with_lines(self, claude_md_lines, over_budget=False):
+        return {
+            "existing_skills": [],
+            "existing_agents": [],
+            "existing_hooks": [],
+            "context_budget": {
+                "claude_md_lines": claude_md_lines,
+            },
+            "demotion_candidates": {
+                "claude_md_to_rule": [{
+                    "domain": "react",
+                    "filename": "react",
+                    "paths": ["**/*.tsx"],
+                    "entries": [
+                        {"line_number": 1, "content": "Use hooks"},
+                        {"line_number": 2, "content": "TSX only"},
+                    ],
+                }],
+                "rule_to_reference": [],
+                "claude_md_verbose_to_reference": [],
+                "budget": {
+                    "claude_md_lines": claude_md_lines,
+                    "over_budget": over_budget,
+                    "total_demotable_lines": 2,
+                },
+            },
+        }
+
+    def test_demotion_low_impact_under_150_lines(self):
+        """CLAUDE.md at 82 lines -> all demotions get 'low' impact."""
+        config = self._config_with_lines(82)
+        proposals = bp._build_from_demotions(config)
+        assert len(proposals) == 1
+        assert proposals[0]["impact"] == "low"
+
+    def test_demotion_medium_impact_at_175_lines(self):
+        """CLAUDE.md at 175 lines -> demotions get 'medium'."""
+        config = self._config_with_lines(175)
+        proposals = bp._build_from_demotions(config)
+        assert len(proposals) == 1
+        assert proposals[0]["impact"] == "medium"
+
+    def test_demotion_high_impact_over_200_lines(self):
+        """CLAUDE.md at 220 lines (over budget) -> demotions keep 'high'."""
+        config = self._config_with_lines(220, over_budget=True)
+        proposals = bp._build_from_demotions(config)
+        assert len(proposals) == 1
+        assert proposals[0]["impact"] == "high"
+
+
+# ---------------------------------------------------------------------------
+# Duplicate workflow ID test
+# ---------------------------------------------------------------------------
+
+class TestWorkflowDuplicateIds:
+    """Verify duplicate workflow IDs are filtered."""
+
+    def test_workflow_duplicate_ids_filtered(self):
+        """Two workflow patterns that produce the same ID -> only one proposal."""
+        transcripts = {
+            "candidates": {
+                "repeated_prompts": [],
+                "corrections": [],
+                "workflow_patterns": [
+                    {
+                        "pattern": "read-write-verify",
+                        "phase_sequence": ["read", "write", "execute"],
+                        "occurrences": 10,
+                        "sessions": ["s1", "s2", "s3"],
+                        "evidence": [],
+                    },
+                    {
+                        "pattern": "read write verify",
+                        "phase_sequence": ["read", "write"],
+                        "occurrences": 8,
+                        "sessions": ["s1", "s2", "s3", "s4"],
+                        "evidence": [],
+                    },
+                ],
+            },
+        }
+        existing_agents = []  # type: list
+        proposals = bp._build_from_workflows(transcripts, existing_agents)
+        ids = [p["id"] for p in proposals]
+        assert len(ids) == len(set(ids)), "Duplicate IDs found: {}".format(ids)

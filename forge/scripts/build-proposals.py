@@ -38,7 +38,7 @@ THRESHOLDS = {
 
 STALENESS_THRESHOLDS = {
     "min_sessions_for_analysis": 10,
-    "stale_session_count": 15,   # not seen in last N sessions → stale
+    "min_reference_ratio": 0.25,  # referenced in <25% of sessions → stale
 }
 
 
@@ -851,6 +851,15 @@ def _build_from_demotions(config: Dict) -> List[Dict]:
             "status": "pending",
         })
 
+    # Scale demotion impact by context pressure
+    claude_md_lines = config.get("context_budget", {}).get("claude_md_lines", 0)
+    for p in proposals:
+        if claude_md_lines < 150:
+            p["impact"] = "low"  # Well under budget — not worth the churn
+        elif claude_md_lines <= 200:
+            p["impact"] = "medium"
+        # else: keep existing impact (high when over budget)
+
     return proposals
 
 
@@ -1092,6 +1101,7 @@ def _build_from_workflows(transcripts: Dict,
                            existing_agents: List[Dict]) -> List[Dict]:
     """Build agent proposals from detected workflow patterns."""
     proposals = []
+    seen_ids = set()  # type: set
     candidates = transcripts.get("candidates", {})
 
     for pattern in candidates.get("workflow_patterns", []):
@@ -1124,10 +1134,16 @@ def _build_from_workflows(transcripts: Dict,
         if match:
             continue  # Don't propose a duplicate agent
 
+        # Prevent duplicate IDs from name collisions
+        proposal_id = "{}-agent".format(name)
+        if proposal_id in seen_ids:
+            continue
+        seen_ids.add(proposal_id)
+
         # Build the proposal
         phase_str = " -> ".join(phase_sequence)
         proposals.append({
-            "id": "{}-agent".format(name),
+            "id": proposal_id,
             "type": "agent",
             "impact": _score_impact("agent", occurrences, sessions),
             "confidence": "high" if occurrences >= 8 else "medium",
@@ -1244,7 +1260,7 @@ def _build_from_staleness(config: Dict, transcripts: Dict) -> List[Dict]:
     """Build proposals for stale artifacts not referenced in recent sessions."""
     sessions_analyzed = transcripts.get("sessions_analyzed", 0)
     min_sessions = STALENESS_THRESHOLDS["min_sessions_for_analysis"]
-    stale_threshold = STALENESS_THRESHOLDS["stale_session_count"]
+    min_ratio = STALENESS_THRESHOLDS["min_reference_ratio"]
 
     if sessions_analyzed < min_sessions:
         return []
@@ -1254,9 +1270,6 @@ def _build_from_staleness(config: Dict, transcripts: Dict) -> List[Dict]:
 
     if not session_text_index:
         return []
-
-    # Cap stale threshold to actual session count
-    effective_threshold = min(stale_threshold, sessions_analyzed)
 
     # Gather all artifacts to check
     artifacts = []  # type: List[Dict]
@@ -1272,9 +1285,14 @@ def _build_from_staleness(config: Dict, transcripts: Dict) -> List[Dict]:
         sessions_ref = _is_artifact_referenced(
             artifact, session_text_index, session_tool_paths,
         )
-        unreferenced_sessions = sessions_analyzed - sessions_ref
 
-        if unreferenced_sessions < effective_threshold:
+        # Use ratio-based staleness: not stale if referenced in >= 25% of sessions
+        if sessions_analyzed > 0:
+            reference_ratio = sessions_ref / sessions_analyzed
+        else:
+            reference_ratio = 0.0
+
+        if reference_ratio >= min_ratio:
             continue
 
         art_type = artifact.get("format", "unknown")
