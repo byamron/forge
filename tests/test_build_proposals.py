@@ -420,18 +420,6 @@ class TestDemotionImpactScoring:
         assert bp._score_impact("demotion") == "medium"
 
 
-class TestSimilarity:
-    def test_identical_texts(self):
-        assert bp._similarity("deploy to staging", "deploy to staging") == 1.0
-
-    def test_no_overlap(self):
-        assert bp._similarity("deploy staging", "running tests") == 0.0
-
-    def test_partial_overlap(self):
-        sim = bp._similarity("deploy to staging environment", "deploy staging server")
-        assert 0.0 < sim < 1.0
-
-
 class TestAgentGeneration:
     """Verify agent proposals are built from workflow patterns."""
 

@@ -37,6 +37,31 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Analyzer unit tests + test suite quality audit (P4)
+**Date:** 2026-04-04
+**Branch:** analyzer-unit-tests
+
+**What was done:**
+Added 84 new unit tests for `analyze-config.py` (53 tests) and `analyze-memory.py` (31 tests). Audited all pre-existing tests and removed 15 shallow tests from 4 files. Total suite: 488 tests, all passing.
+
+**Why:**
+P4 from the roadmap — edge cases in analysis scripts weren't covered. During the work, a critical evaluation of test quality revealed ~25 shallow tests across the suite (dict constant assertions, trivially obvious branches, duplicate coverage).
+
+**Design decisions:**
+- Every test must protect against a plausible regression or document non-obvious behavior. Tests that assert dictionary constants or trivially obvious stdlib behavior were cut rather than maintained.
+- `test_plugin_manifest.py` and `test_security.py` kept despite being linting-style tests — they guard against documented bugs until CI (P6) provides proper linting.
+
+**Technical decisions:**
+- Package manager detection tests parametrized (4 branches → 1 test with `@pytest.mark.parametrize`).
+- Added error-path tests missing from original suite: malformed `package.json`, malformed `settings.json`, multiline YAML frontmatter, word-filter edge cases in redundancy check, strategy 3 memory directory discovery.
+- `TestClassificationToArtifact`, `TestGenerateSuggestion`, `TestIsDomainSpecific`, and `TestSimilarity` classes deleted entirely — they tested lookup tables or one-liners already covered by higher-level tests.
+
+**Tradeoffs discussed:**
+- 117 new tests written initially, then cut to 84 after critical review. The initial count was inflated by shallow patterns common in AI-generated tests. Fewer meaningful tests are better than many trivial ones.
+- Considered converting security grep-tests to pre-commit hooks, but deferred to P6 when CI infrastructure is built.
+
+---
+
 ### P0 validation: portfolio-site + PriorityAppXcode
 **Date:** 2026-04-04
 **Branch:** test-forge-validation

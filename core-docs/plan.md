@@ -523,7 +523,7 @@ Target: validate the top-level structure of each script's input. Not deep schema
 ---
 
 ### P4. Analyzer unit tests
-**Status:** Not started
+**Status:** Complete
 **Priority:** MEDIUM — edge cases in analysis scripts aren't covered.
 **Goal:** Dedicated unit tests for `analyze-config.py` and `analyze-memory.py`.
 **Impacts:** Accuracy
@@ -683,7 +683,7 @@ No new scripts needed — the SKILL.md can read `applied.json` directly and form
 | 4.1 Ambient presence | ❌ P1 | Proactive proposals at session start, effectiveness alerts, health signal |
 | 4.2 Proposal presentation | ❌ P2 | "What changed", evidence improvements, feedback visibility, previews |
 | 4.3 Reliability & error visibility | ❌ P3 | Schema validation, /forge --diagnose, mypy |
-| 4.4 Analyzer unit tests | ❌ P4 | analyze-config.py and analyze-memory.py edge cases |
+| 4.4 Analyzer unit tests | ✅ Done | 84 new tests (53 config, 31 memory), 15 shallow tests removed from existing files, fixture timing bug fixed |
 | 4.5 Explain mode | ❌ P5 | /forge --explain with evidence trail |
 | 4.6 CI/CD | ✅ Done | GitHub Actions, Python 3.8 + 3.9 matrix, CI-only branch protection on main |
 | 4.7 Deep analysis e2e | ❌ P7 | Verify --deep works end-to-end |

@@ -70,13 +70,7 @@ class TestWriteCacheAtomic:
 
 
 class TestFingerprintDeterminism:
-    """Verify same inputs produce same fingerprint."""
-
-    def test_same_inputs_same_checksum(self):
-        entries = ["file1:123:456", "file2:789:012"]
-        h1 = cm.compute_checksum(entries)
-        h2 = cm.compute_checksum(entries)
-        assert h1 == h2
+    """Verify fingerprint properties that matter for cache invalidation."""
 
     def test_order_independent(self):
         """Checksum sorts entries, so order shouldn't matter."""

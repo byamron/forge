@@ -143,4 +143,14 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 **Applies to:** plan.md validation results, any future automated testing that produces acceptance metrics
 
+### FB-0012: Every test must justify its existence to an elite reviewer
+**Date:** 2026-04-04
+**Source:** user direction
+
+**What was said:** After writing 117 tests, user asked whether they were all meaningful or just shallow padding. Challenged whether the tests could be defended to elite engineers running AI workflows. Directed a critical audit of all 503 tests in the suite and asked to either improve shallow tests into something valuable or remove them.
+
+**Synthesized rule:** AI-generated tests default to shallow patterns: asserting dict constants, testing trivially obvious branches, duplicating coverage from higher-level tests. After writing tests, critically evaluate each one: does it protect against a plausible regression? Would a senior engineer ask "why does this test exist?" If yes, either make it meaningful or delete it. Fewer meaningful tests > many trivial ones. Count inflation is a red flag.
+
+**Applies to:** all test writing, test review, PR readiness checks
+
 <!-- Add new entries below this line, newest first. -->
