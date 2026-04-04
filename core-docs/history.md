@@ -44,7 +44,7 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 **What was done:**
 Rewrote `check-pending.py` from a simple session-count nudger into a three-tier ambient presence system. (1) Proactive proposals: when high-confidence cached proposals exist and `proactive_proposals` setting is on (default), surfaces top 1-2 proposals at session start with description, evidence, and occurrence data — enough to approve inline without running `/forge`. (2) Effectiveness alerts: checks applied artifacts against current transcript analysis and warns when patterns persist after an artifact was applied. (3) Ambient health signal: when nothing else to say, emits a brief status line ("Forge: tracking 23 sessions. All 5 applied artifacts effective.") so users always know Forge is active.
 
-Added `proactive_proposals` boolean setting (default: true) to `read-settings.py`, `write-settings.py`, and `/forge:settings` SKILL.md. Updated both READMEs with new product framing. 21 new tests, 509 total passing.
+Added `proactive_proposals` boolean setting (default: true) to `read-settings.py`, `write-settings.py`, and `/forge:settings` SKILL.md. Updated both READMEs with new product framing. 27 new tests, 515 total passing.
 
 **Why:**
 FB-0002: Users couldn't tell Forge was working. Four hooks ran every session but produced no visible output most of the time. The gap between "Forge is analyzing" and "user sees value" was too large — P0 validation showed raw proposals are poor quality, so `/forge` felt manual and unreliable. Proactive surfacing of pre-filtered, high-confidence proposals closes this gap.
@@ -56,9 +56,10 @@ FB-0002: Users couldn't tell Forge was working. Four hooks ran every session but
 - `proactive_proposals` defaults to true. The setting exists for users who want `/forge` to be the only interaction point, but the default optimizes for the "living system" framing (FB-0002).
 
 **Technical decisions:**
-- Reused `load_applied_history` and `load_effectiveness` by reading from the project-level `.claude/forge/` path (with user-level fallback), consistent with the P0-prereq storage split.
+- Reused `load_applied_history` by reading from the project-level `.claude/forge/` path (with user-level fallback), consistent with the P0-prereq storage split.
 - `count_total_sessions` uses `max(session_log_lines, unanalyzed_lines)` since both files track sessions but from different angles.
-- Effectiveness data is read from `cache/proposals.json` which includes the `effectiveness` array from `_compute_effectiveness()` in build-proposals.py. No new cache files needed.
+- `load_effectiveness` computes effectiveness inline by reading the transcript analysis cache (`cache/transcripts.cache.json`) and matching applied artifact pattern IDs against current correction/post_action candidates. This avoids depending on a separate cached effectiveness file.
+- Quiet mode suppresses the ambient health signal but not proactive proposals or effectiveness alerts — those are always-on because they carry actionable information.
 
 **Tradeoffs discussed:**
 - Three-level nudge (quiet/balanced/eager) vs. single boolean: kept the three levels for session-count nudges since they're already shipped and provide real granularity. Added proactive as a separate boolean because it's a fundamentally different behavior (showing proposals vs. showing counts).
