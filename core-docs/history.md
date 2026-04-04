@@ -37,6 +37,71 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### LLM quality gate always-on (v0.3.7)
+**Date:** 2026-04-04
+**Branch:** proposal-feedback-loop
+
+**What was done:**
+The session-analyzer agent's role expanded from "find additional patterns" to "filter script proposals for quality AND find additional patterns." The `analysis_depth` setting was removed -- the LLM pass now runs automatically after every background analysis cycle. The `--deep` and `--quick` flags were removed from the `/forge` skill. The `/forge:settings` skill now only manages nudge frequency.
+
+**Why:**
+P0 validation showed 5 of 9 proposals were generic coding patterns (read->write->execute) that script heuristics cannot distinguish from real workflows. The LLM quality gate filters these out at ~5K tokens per run -- negligible cost for significant quality improvement. Offering a "standard mode" without the LLM was offering worse results for no benefit (FB-0006).
+
+**Design decisions:**
+- The quality gate is implicit, not a setting. Users should not have to choose between "fast but bad" and "slightly slower but good." If cost becomes a concern, optimize the LLM call rather than degrading quality.
+- The new output format (`filtered_proposals` + `additional_proposals`) replaces the old array format. The deep cache now IS the proposal set when available, not a supplement to it.
+- Legacy format (plain array from LLM) is handled gracefully -- converted to the new structure on the fly.
+
+**Technical decisions:**
+- `_run_deep_analysis` always called after successful Phase A in `_run_analysis()`. No settings check.
+- The prompt sends the full script proposals array to the LLM for filtering, plus conversation pairs for additional pattern detection.
+- Cache format includes `removal_reasons` for transparency (e.g., "generic-workflow: workflow-execute-read-execute-agent").
+- `_read_deep_analysis_cache` in cache-manager handles legacy format by converting `proposals` key to `additional_proposals`.
+- Tests mock `_run_deep_analysis` in run-mode tests to isolate Phase A behavior. Deep analysis has its own dedicated test class.
+
+**Tradeoffs discussed:**
+- Could have kept `analysis_depth` as a hidden/advanced setting. Decided against it: offering a degraded mode trains users to avoid the better path. If someone reports cost concerns, we optimize the prompt, not add a toggle.
+- Could have made the quality gate synchronous (block `/forge` until LLM responds). Kept the background approach -- the first `/forge` run after analysis uses raw proposals, and filtered proposals appear on subsequent runs. This avoids blocking the user.
+
+---
+
+### P0 validation: first real-world run, quality gap identified, LLM gate decision
+**Date:** 2026-04-03
+**Branch:** proposal-feedback-loop
+
+**What was done:**
+Ran `/forge` on the Forge repo itself (29 sessions). 9 proposals generated, 1 approved (modified), 5 dismissed, 3 skipped. 11% acceptance rate — far below the 50% target. Identified 4 systematic quality issues and made two major architectural decisions.
+
+**Why:**
+P0 validation exists to answer "are proposals actually good?" The answer was no — not because the classifier is broken (100% precision, 86.7% recall) but because the proposal *builder* generates low-quality proposals from correctly-detected patterns. The classifier detects that read→write→execute happens 20 times across 20 sessions. That's accurate. But the proposal builder turns it into "Create a workflow agent" rated "high impact" — which is useless.
+
+**Findings:**
+1. **Generic workflows rated high-impact (5 of 9 proposals):** Tool-use sequences like read→write→execute appear in every coding session. Script heuristics can't distinguish "push and merge" (real workflow) from "read, think, write" (just coding). Two proposals had duplicate IDs.
+2. **Staleness miscalibrated:** Rule 'python-scripts' flagged as stale with 13 references in 29 sessions (45% rate). The staleness check uses absolute unreferenced count instead of reference ratio — breaks as session count grows.
+3. **Demotion impact ignores headroom:** Saving 2-7 lines rated "medium" when CLAUDE.md is 82/200 lines. No urgency exists.
+4. **Auto-pytest hook needed scoping:** Proposed for all files; user approved only after scoping to test files.
+
+**Design decisions:**
+
+- **LLM quality gate is not optional — it's how Forge works.** The `analysis_depth` setting ("standard" vs "deep") is being removed. Every Forge run includes an LLM pass (~5K tokens, runs in background on SessionStart). The session-analyzer agent's role changes from "find additional patterns" to "filter script proposals for quality AND find additional patterns." Rationale: script heuristics cast a wide net but can't judge quality. Only an LLM can distinguish "this is how coding works" from "this is a specific workflow worth automating." The cost (~5K tokens) is negligible for the quality improvement. Offering "standard mode" is offering worse results for no benefit — the right approach is to make the LLM call implicit and optimize its cost if needed.
+
+- **Pipeline architecture change:** Scripts (wide net, zero cost, background) → LLM (quality gate, ~5K tokens, background) → User sees only LLM-approved proposals. The deep analysis cache becomes the *authoritative* proposal set, not a supplement.
+
+- **Quality assessment includes human-in-the-loop check:** Agent proposals for workflows that involve iterative feedback (read→write→get feedback→revise) should not be automated because they remove a valuable approval step. The LLM quality gate will check for this.
+
+**Technical decisions:**
+- Staleness threshold changes from absolute count to ratio: `sessions_ref / sessions_analyzed < 0.25` = stale
+- Demotion impact scales with context pressure: "low" (filtered) when CLAUDE.md < 150 lines, "medium" at 150-200, "high" when over budget
+- Duplicate workflow IDs prevented with seen-set pattern
+- `/forge:settings` will drop the `analysis_depth` option. Background analysis always includes LLM pass.
+
+**Tradeoffs discussed:**
+- Script-only filtering (zero cost) vs LLM quality gate (~5K tokens): chose LLM. Script heuristics can fix some issues (staleness ratio, demotion scaling) but fundamentally can't judge whether a workflow is project-specific or generic. The ubiquity filter ("skip if >80% of sessions") was considered and rejected — "push to main" is ubiquitous AND valuable, while "read, think, write" is ubiquitous AND worthless. Only semantic judgment can tell these apart.
+- Exposing "standard mode" as a setting vs removing it: chose removing it. "Standard" mode means "worse proposals." No user should want that. If cost becomes a concern, optimize the LLM call (shorter prompts, caching), don't degrade quality.
+- User feedback during P0 review was itself valuable: Claude's inline quality assessment ("this is a generic pattern, not a project-specific workflow") helped the user decide. This validated that LLM judgment belongs in the pipeline.
+
+---
+
 ### Storage split: personal vs shared project data (v0.3.6) `SAFETY`
 **Date:** 2026-04-03
 **Branch:** proposal-feedback-loop

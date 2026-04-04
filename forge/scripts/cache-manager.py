@@ -438,8 +438,12 @@ def _extract_pairs_sample(root: Path) -> List[Dict[str, Any]]:
 def _read_deep_analysis_cache(root: Path) -> Optional[Dict[str, Any]]:
     """Read cached deep analysis results from background-analyze.py.
 
-    Returns the cache dict with 'proposals' and 'timestamp', or None.
+    Returns the cache dict with 'filtered_proposals', 'additional_proposals',
+    'removed_count', 'removal_reasons', and 'timestamp', or None.
     The cache is considered stale after 24 hours.
+
+    Also handles legacy format (with 'proposals' key instead of
+    'filtered_proposals'/'additional_proposals').
     """
     deep_path = cache_dir(root) / "deep-analysis.json"
     if not deep_path.is_file():
@@ -450,6 +454,12 @@ def _read_deep_analysis_cache(root: Path) -> Optional[Dict[str, Any]]:
         ts = data.get("timestamp", 0)
         if time.time() - ts > 86400:  # 24 hours
             return None
+        # Handle legacy format: convert 'proposals' to new structure
+        if "proposals" in data and "filtered_proposals" not in data:
+            data["filtered_proposals"] = []
+            data["additional_proposals"] = data.pop("proposals")
+            data["removed_count"] = 0
+            data["removal_reasons"] = []
         return data
     except (OSError, json.JSONDecodeError):
         return None

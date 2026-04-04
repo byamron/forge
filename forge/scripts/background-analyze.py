@@ -5,15 +5,15 @@ Checks if enough unanalyzed sessions have accumulated and, if so,
 spawns cache-manager.py --update as a fully detached background process.
 Returns immediately so the hook does not block session start.
 
-Script analysis (Phase A) is always zero LLM token cost. If the user has
-analysis_depth set to "deep", a follow-up deep analysis pass runs via
-`claude -p --bare --model sonnet` after Phase A completes, caching the
-result for the next `/forge` invocation.
+Script analysis (Phase A) is always zero LLM token cost. After Phase A
+completes, a deep analysis pass runs via `claude -p --bare --model sonnet`,
+filtering script proposals for quality and finding additional patterns.
+The result is cached for the next `/forge` invocation.
 
-Usage (hook mode — returns immediately):
+Usage (hook mode -- returns immediately):
     python3 background-analyze.py [--plugin-root /path] [--project-root /path]
 
-Usage (internal — runs analysis synchronously, called by the spawned subprocess):
+Usage (internal -- runs analysis synchronously, called by the spawned subprocess):
     python3 background-analyze.py --run --project-root /path --plugin-root /path
 """
 
@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional
 from project_identity import find_project_root, get_user_data_dir, resolve_user_file
 
 
-# Reuse nudge level thresholds — if the user configured their nudge level,
+# Reuse nudge level thresholds -- if the user configured their nudge level,
 # that's the appropriate threshold for background analysis too.
 LEVEL_THRESHOLDS = {
     "quiet": None,
@@ -71,12 +71,6 @@ def load_nudge_level(project_root: Path) -> str:
     return "balanced"
 
 
-def load_analysis_depth(project_root: Path) -> str:
-    data = _load_settings(project_root)
-    depth = data.get("analysis_depth", "standard")
-    return depth if depth in ("standard", "deep") else "standard"
-
-
 def count_unanalyzed_sessions(user_data_dir: Path) -> int:
     log_path = user_data_dir / "unanalyzed-sessions.log"
     if not log_path.is_file():
@@ -96,7 +90,7 @@ def is_locked(user_data_dir: Path) -> bool:
     try:
         mtime = lock_path.stat().st_mtime
         if time.time() - mtime > LOCK_STALENESS_SECONDS:
-            # Stale lock — previous run likely crashed
+            # Stale lock -- previous run likely crashed
             try:
                 lock_path.unlink()
             except OSError:
@@ -138,7 +132,11 @@ def _build_deep_prompt(
     pairs: List[Dict[str, Any]],
     agent_prompt_path: Path,
 ) -> Optional[str]:
-    """Build the prompt for the deep analysis LLM call."""
+    """Build the prompt for the deep analysis LLM call.
+
+    Sends script proposals for quality filtering and conversation pairs
+    for additional pattern detection.
+    """
     if not agent_prompt_path.is_file():
         return None
 
@@ -158,8 +156,12 @@ def _build_deep_prompt(
         f"```json\n{json.dumps(proposals, indent=2)}\n```\n\n"
         f"## Input: Conversation pairs sample\n\n"
         f"```json\n{json.dumps(pairs_sample, indent=2)}\n```\n\n"
-        f"Analyze the conversation pairs and return a JSON array of additional proposals. "
-        f"Output ONLY a valid JSON array — no markdown fences, no explanation."
+        f"Output a JSON object with `filtered_proposals` (script proposals that "
+        f"pass quality review, with impact potentially adjusted), "
+        f"`additional_proposals` (new patterns you found), `removed_count` "
+        f"(how many script proposals you filtered out), and `removal_reasons` "
+        f"(array of reason strings). "
+        f"Output ONLY a valid JSON object -- no markdown fences, no explanation."
     )
     return prompt
 
@@ -173,6 +175,7 @@ def _run_deep_analysis(
 
     Reads cached script proposals and transcript pairs, builds a prompt,
     invokes the LLM, and caches the result as deep-analysis.json.
+    The LLM filters script proposals for quality and finds additional patterns.
     """
     # Check if claude CLI is available
     claude_bin = shutil.which("claude")
@@ -215,7 +218,7 @@ def _run_deep_analysis(
         if proc.returncode != 0:
             return
 
-        # Parse the LLM output — expect a JSON array
+        # Parse the LLM output -- expect a JSON object
         output = proc.stdout.strip()
         # Strip markdown fences if the LLM wrapped them anyway
         if output.startswith("```"):
@@ -224,13 +227,36 @@ def _run_deep_analysis(
             lines = [l for l in lines if not l.startswith("```")]
             output = "\n".join(lines).strip()
 
-        deep_proposals = json.loads(output)
-        if not isinstance(deep_proposals, list):
+        deep_result = json.loads(output)
+
+        # Accept both the new object format and legacy array format
+        if isinstance(deep_result, list):
+            # Legacy format: plain array of additional proposals
+            deep_result = {
+                "filtered_proposals": proposals,
+                "additional_proposals": deep_result,
+                "removed_count": 0,
+                "removal_reasons": [],
+            }
+        elif not isinstance(deep_result, dict):
             return
+
+        # Validate required keys exist (use defaults for missing)
+        if "filtered_proposals" not in deep_result:
+            deep_result["filtered_proposals"] = proposals
+        if "additional_proposals" not in deep_result:
+            deep_result["additional_proposals"] = []
+        if "removed_count" not in deep_result:
+            deep_result["removed_count"] = 0
+        if "removal_reasons" not in deep_result:
+            deep_result["removal_reasons"] = []
 
         # Cache the result
         result = {
-            "proposals": deep_proposals,
+            "filtered_proposals": deep_result["filtered_proposals"],
+            "additional_proposals": deep_result["additional_proposals"],
+            "removed_count": deep_result["removed_count"],
+            "removal_reasons": deep_result["removal_reasons"],
             "timestamp": time.time(),
             "pairs_analyzed": len(pairs),
             "source": "background_deep_analysis",
@@ -263,7 +289,7 @@ def _run_analysis(root: Path, plugin_root: str, user_data_dir: Path) -> None:
         )
 
         if proc.returncode == 0:
-            # Reset the unanalyzed sessions log — analysis is complete.
+            # Reset the unanalyzed sessions log -- analysis is complete.
             # Any SessionEnd that fires during analysis adds a new entry;
             # those are acceptable to lose since the cache is now fresh.
             log_path = user_data_dir / "unanalyzed-sessions.log"
@@ -272,9 +298,8 @@ def _run_analysis(root: Path, plugin_root: str, user_data_dir: Path) -> None:
             except OSError:
                 pass
 
-            # If deep mode is enabled, run LLM analysis pass
-            if load_analysis_depth(root) == "deep":
-                _run_deep_analysis(root, plugin_root, user_data_dir)
+            # Always run LLM quality gate after successful Phase A
+            _run_deep_analysis(root, plugin_root, user_data_dir)
 
     except (subprocess.TimeoutExpired, OSError):
         pass
@@ -293,7 +318,7 @@ def main() -> None:
     parser.add_argument("--project-root", type=str, default=None)
     parser.add_argument(
         "--run", action="store_true",
-        help="Run analysis synchronously (internal — called by spawned subprocess)"
+        help="Run analysis synchronously (internal -- called by spawned subprocess)"
     )
     args = parser.parse_args()
 
@@ -345,7 +370,7 @@ def main() -> None:
             stderr=subprocess.DEVNULL,
         )
     except OSError:
-        # Spawn failed — clean up lock to avoid blocking future runs
+        # Spawn failed -- clean up lock to avoid blocking future runs
         try:
             lock_path.unlink()
         except OSError:
@@ -357,6 +382,6 @@ if __name__ == "__main__":
         main()
     except Exception:
         # SessionStart hooks must never crash visibly.
-        # Failure here just means background analysis doesn't run —
+        # Failure here just means background analysis doesn't run --
         # the user can still invoke /forge manually.
         pass

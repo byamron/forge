@@ -8,7 +8,7 @@ Post-review reprioritization (2026-04-03). Phase 4: Quality & Polish. Comprehens
 
 ## Handoff Notes
 
-- Background deep analysis is implemented but untested end-to-end with `analysis_depth: "deep"`. Should verify the `claude -p --bare` invocation works on a real project.
+- Deep analysis is now always-on (v0.3.7). The `analysis_depth` setting was removed. The LLM quality gate runs after every background analysis cycle. Still needs end-to-end verification that `claude -p --bare` invocation works on a real project.
 - Labeled eval data at `tests/scoring_eval/labeled/*.json` (gitignored). 113 pairs labeled, classifier tuned to 100% precision / 86.7% recall.
 - The feedback loop (v0.3.5) needs real-world validation — run `/forge` on a project, dismiss/modify proposals, then run `/forge` again to verify the calibration kicks in.
 - Code review consensus: architecture is sound (B+ to A-), main gaps are error handling, test coverage for analyzers, and UX observability.
@@ -89,6 +89,85 @@ Original spec (`core-docs/spec.md`) and roadmap (`core-docs/roadmap.md`) are che
 **Files changed:** Threshold constants in `build-proposals.py` (if tuning needed). No structural changes.
 **Tests:** None new — this is manual validation.
 **Acceptance criteria:** Acceptance rate >50% on second pass. All feedback mechanisms (calibration, safety gate, skip decay) observed working.
+
+#### P0 validation results: Forge repo (2026-04-03)
+
+First run on tacoma (29 sessions). 9 proposals, 1 approved (modified), 5 dismissed, 3 skipped. Acceptance rate: 11%.
+
+**Findings requiring fixes:**
+1. **Generic workflows flagged as high-impact agents** — 5 of 9 proposals were universal coding patterns (read→write→execute), not project-specific workflows. Script heuristics can't distinguish "push to main" (real workflow) from "read, think, write" (just coding). Needs LLM judgment.
+2. **Staleness uses absolute count instead of ratio** — rule with 45% reference rate flagged as stale because `unreferenced_sessions >= 15`.
+3. **Demotion impact ignores context headroom** — saving 2-7 lines rated "medium" when CLAUDE.md is 82/200.
+4. **Duplicate proposal IDs** — two workflow proposals shared the same ID.
+
+**Decisions from validation:**
+- **Deep mode should be the default.** 5K tokens in background is negligible. The LLM pass should filter low-quality proposals, not just find additional ones. Pipeline becomes: scripts (wide net) → LLM (quality gate) → user (fewer, better proposals).
+- Script-side fixes still needed for staleness ratio and demotion scaling — these are bugs regardless of LLM filtering.
+
+### P0a. Script-side quality fixes
+**Status:** Not started
+**Priority:** CRITICAL — bugs found during P0 validation.
+**Goal:** Fix staleness miscalibration, demotion scaling, duplicate IDs.
+**Impacts:** Accuracy
+
+**Implementation:**
+
+1. **Staleness: ratio-based detection** (`build-proposals.py` `_build_from_staleness()`)
+   - Replace `unreferenced_sessions >= threshold` with `sessions_ref / sessions_analyzed < 0.25`
+   - If referenced in >25% of sessions, not stale regardless of total count
+   - Update `STALENESS_THRESHOLDS` to include `min_reference_ratio: 0.25`
+
+2. **Demotion: context-pressure scaling** (`build-proposals.py` `_build_from_demotions()`)
+   - Pass `claude_md_lines` into demotion builder
+   - If `claude_md_lines < 150`: demotion impact = "low" (filtered out)
+   - If `150 <= claude_md_lines <= 200`: impact = "medium"
+   - If `claude_md_lines > 200`: impact = "high"
+
+3. **Duplicate ID prevention** (`build-proposals.py` `_build_from_workflows()`)
+   - Track seen IDs in a set, skip duplicates (same pattern used in `_build_from_demotions()`)
+
+**Tests:** 6-8 new tests covering each fix.
+
+### P0b. LLM quality gate — always on
+**Status:** Complete (v0.3.7)
+**Priority:** CRITICAL — the biggest single improvement to proposal quality.
+**Goal:** The session-analyzer agent reviews script proposals and filters out low-quality ones before the user sees them. LLM pass is always on — not a setting.
+**Impacts:** Accuracy, UX
+
+**Why:** Script heuristics can detect patterns but can't judge quality. "Read→write→execute" looks the same as "commit→push→merge" in tool-use sequences. Only an LLM can distinguish "this is just how coding works" from "this is a specific repeatable workflow." The cost is ~5K tokens per background run — negligible for the quality improvement. Offering a "standard mode" without LLM is offering worse results for no benefit.
+
+**Decision (2026-04-03):** The `analysis_depth` setting is removed. LLM quality gate is implicit — it's how Forge works. If cost becomes a concern, optimize the LLM call (shorter prompts, caching), don't degrade quality.
+
+**Implementation:**
+
+1. **Remove `analysis_depth` setting**
+   - `read-settings.py`: remove `analysis_depth` from output, or always return `"deep"`
+   - `background-analyze.py`: always run deep analysis after Phase A scripts
+   - `/forge:settings` skill: remove the depth option
+   - `forge/skills/forge/SKILL.md`: remove `--deep` / `--quick` flags from Step 0
+
+2. **Update session-analyzer agent prompt** (`forge/agents/session-analyzer.md`)
+   - Current role: "find additional patterns the scripts missed"
+   - New role: "review script proposals for quality AND find additional patterns"
+   - Add quality filter instructions:
+     - Remove proposals for generic coding patterns (read/write/execute sequences that appear in all coding sessions)
+     - Remove proposals where the workflow requires iterative human feedback (automating it removes a valuable approval step)
+     - Downgrade impact for proposals with weak evidence or inflated occurrence counts
+     - Flag duplicates
+   - Output format: filtered proposals array (proposals the agent approves) + additional proposals it found
+
+3. **Update `background-analyze.py` deep analysis flow**
+   - Pass full script proposals to the LLM, not just conversation pairs
+   - Cache the filtered result in `deep-analysis.json`
+   - The cached result replaces script proposals, not supplements them
+
+4. **Update SKILL.md merge rules** (Step 1b)
+   - When deep cache exists: use it AS the proposal set (it already includes the good script proposals + any additions)
+   - When no deep cache and deep mode: spawn agent, wait for it (it's the quality gate)
+   - When standard mode: show unfiltered script proposals (current behavior)
+
+**Tests:** Update existing deep analysis tests. Add test that deep cache replaces (not appends to) script proposals.
+**Acceptance criteria:** Re-run `/forge` on tacoma after changes — generic workflow proposals should be filtered out by the LLM.
 
 ---
 
@@ -387,23 +466,21 @@ jobs:
 
 ### P7. Deep analysis end-to-end validation
 **Status:** Not started
-**Priority:** LOW — opt-in feature.
-**Goal:** Verify `--deep` works end-to-end.
+**Priority:** LOW — verification task.
+**Goal:** Verify the always-on LLM quality gate works end-to-end.
 **Impacts:** Completeness
 
 **Implementation plan:**
 
-1. Enable `analysis_depth: "deep"` via `/forge:settings` on a real project
-2. Accumulate 5+ sessions
-3. Verify `background-analyze.py` invokes `claude -p --bare --model sonnet`
-4. Verify `deep-analysis.json` cache is written
-5. Run `/forge` — verify deep proposals merge into output
-6. Test the two-phase question flow (script proposals presented first, deep proposals second)
-7. Document any bugs and fix
+1. Accumulate 5+ sessions on a real project
+2. Verify `background-analyze.py` invokes `claude -p --bare --model sonnet` after Phase A
+3. Verify `deep-analysis.json` cache is written with `filtered_proposals` + `additional_proposals`
+4. Run `/forge` — verify filtered proposals replace raw script proposals in output
+5. Document any bugs and fix
 
 **Files changed:** Bug fixes only — no planned structural changes.
 
-**Acceptance criteria:** Deep proposals appear in `/forge` output after background analysis runs.
+**Acceptance criteria:** `/forge` shows LLM-filtered proposals when deep cache exists. Generic workflow proposals are filtered out.
 
 ---
 
@@ -476,7 +553,9 @@ jobs:
 | Task | Status | Notes |
 |------|--------|-------|
 | 4.0-prereq Storage split | ✅ Done | v0.3.6 — feedback data to `.claude/forge/`, personal data stays `~/.claude/forge/` |
-| 4.0 Real-world validation | ❌ P0 | Run /forge on 3+ real projects, measure acceptance rate |
+| 4.0 Real-world validation | 🟡 In progress | First run on forge repo: 11% acceptance, 5 findings |
+| 4.0a Script quality fixes | ❌ Next | Staleness ratio, demotion scaling, duplicate IDs |
+| 4.0b LLM quality gate | ✅ Done | v0.3.7 — LLM always-on, session-analyzer filters proposals, analysis_depth removed |
 | 4.1 Ambient presence | ❌ P1 | Proactive proposals at session start, effectiveness alerts, health signal |
 | 4.2 Proposal presentation | ❌ P2 | "What changed", evidence improvements, feedback visibility, previews |
 | 4.3 Reliability & error visibility | ❌ P3 | Schema validation, /forge --diagnose, mypy |
@@ -496,6 +575,10 @@ jobs:
 ---
 
 ## Recently Completed
+
+### LLM quality gate always-on (v0.3.7)
+**Date:** 2026-04-04
+Session-analyzer agent now has two jobs: filter script proposals for quality (remove generic patterns, human-in-loop violations, weak evidence, duplicates) and find additional patterns. `analysis_depth` setting removed -- LLM pass is implicit. Deep analysis runs after every background analysis cycle. New output format: `{filtered_proposals, additional_proposals, removed_count, removal_reasons}`. 11 new tests for deep analysis (prompt building, result caching, legacy format handling, error cases).
 
 ### Storage split: personal vs shared project data (v0.3.6)
 **Date:** 2026-04-03

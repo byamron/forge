@@ -6,7 +6,6 @@ description: >
   applying suggestions. Use when you want to optimize your Claude Code
   infrastructure, check your setup health, or review pending suggestions.
   Works immediately on first run with no session history needed.
-  Supports --deep for LLM-enhanced analysis and --quick for script-only mode.
 context:
   - references/artifact-templates.md
   - references/anthropic-best-practices.md
@@ -16,12 +15,7 @@ You are running Forge, the Claude Code infrastructure optimizer. Follow these st
 
 **Scope constraint:** All analysis is scoped to the current project. Do not read files from other projects under `~/.claude/projects/`. If the user asks you to, tell them what you're accessing.
 
-## Step 0: Determine analysis mode
-
-Check the user's invocation text for flags:
-- `/forge --deep` → **deep** mode
-- `/forge --quick` → **standard** mode
-- `/forge` (no flags) → read from settings
+## Step 0: Resolve plugin root
 
 Resolve the plugin root and read settings:
 
@@ -29,7 +23,7 @@ Resolve the plugin root and read settings:
 FORGE_ROOT="${CLAUDE_PLUGIN_ROOT}"; if [ -z "$FORGE_ROOT" ]; then FORGE_ROOT=$(python3 -c "import json,pathlib; data=json.loads(pathlib.Path.home().joinpath('.claude/plugins/installed_plugins.json').read_text()); print(next((v[0]['installPath'] for k,v in data.get('plugins',{}).items() if k.startswith('forge@')), ''))" 2>/dev/null); fi; if [ -z "$FORGE_ROOT" ]; then echo 'ERROR: Could not locate Forge plugin'; exit 1; fi; echo "FORGE_ROOT=$FORGE_ROOT"; python3 "$FORGE_ROOT/scripts/read-settings.py"
 ```
 
-Save the `FORGE_ROOT=...` path. If unresolved, tell the user and stop. Check `analysis_depth` in output (default: `"standard"`).
+Save the `FORGE_ROOT=...` path. If unresolved, tell the user and stop.
 
 ## Step 1: Get proposals
 
@@ -39,13 +33,10 @@ python3 "<FORGE_ROOT>/scripts/cache-manager.py" --proposals --plugin-root "<FORG
 
 Returns JSON with `proposals`, `context_health`, `conversation_pairs_sample`, and `deep_analysis_cache`.
 
-## Step 1b: Deep analysis
+## Step 1b: Apply quality filter from deep analysis
 
-1. If `deep_analysis_cache` is not null: merge its `proposals` into script proposals (see merge rules below). No LLM call needed.
-2. If null AND deep mode active: spawn the `session-analyzer` agent in background (`run_in_background: true`, subagent_type: `session-analyzer`) with the proposals + context_health + conversation_pairs_sample. Continue immediately.
-3. If null AND standard mode: skip.
-
-**Merge rules:** Deep proposals (`"source": "deep_analysis"`) append after script proposals. Deduplicate by `id` or overlapping evidence — enrich the script proposal instead. Sort by impact (high first).
+1. If `deep_analysis_cache` is not null: use its `filtered_proposals` as the proposal set (these are the script proposals that passed the LLM quality gate). Append `additional_proposals` after them. Sort by impact (high first). This replaces the raw script proposals entirely.
+2. If `deep_analysis_cache` is null: the LLM quality filter has not run yet for this analysis cycle. Use the raw script `proposals` directly. Note to the user: "Forge's quality filter will run in the background for your next session."
 
 ## Step 2: Format and present results
 
@@ -59,17 +50,16 @@ FORGE_EOF
 
 The output is JSON with `health_table`, `proposal_table`, `proposal_count`, `has_deep_cache`, `proposals`, and `safety_flagged_ids`. Show the `health_table` first, then the `proposal_table`.
 
-If `safety_flagged_ids` is non-empty, note to the user: "Proposals marked [Safety review] should include human approval steps — previous similar proposals were modified or dismissed for missing safety gates."
+If `safety_flagged_ids` is non-empty, note to the user: "Proposals marked [Safety review] should include human approval steps -- previous similar proposals were modified or dismissed for missing safety gates."
 
 If `proposal_count` is 0:
-- If deep analysis is running: show "Analyzing session patterns..." and wait. Present deep proposals when ready. If none, say setup looks good and stop.
-- Otherwise: say setup looks good and stop.
+- Say setup looks good and stop.
 
 Use a **single `AskUserQuestion` call** (up to 4 proposals per call) with options:
-- **Approve** — "Generate and place the artifact now"
-- **Modify** — "I'll tell you what to change first"
-- **Skip** — "Keep for next time"
-- **Never** — "Dismiss permanently"
+- **Approve** -- "Generate and place the artifact now"
+- **Modify** -- "I'll tell you what to change first"
+- **Skip** -- "Keep for next time"
+- **Never** -- "Dismiss permanently"
 
 If more than 4 proposals, batch into multiple calls. If `AskUserQuestion` unavailable, ask conversationally.
 
@@ -86,20 +76,13 @@ If more than 4 proposals, batch into multiple calls. If `AskUserQuestion` unavai
 
 If the user declines or AskUserQuestion is unavailable, use `"unspecified"`. Example outcome: `{"id": "auto-lint-hook", "status": "dismissed", "type": "hook", "reason": "low_impact"}`.
 
-**On Modify:** After generating the revised artifact, classify the modification based on the user's requested changes (infer from context — do not ask the user to pick a category):
-- User asked for approval steps, confirmation, dry-run, or human-in-the-loop → `"added_approval_gate"`
-- User narrowed scope (fewer files, events, triggers) → `"narrowed_scope"`
-- >50% of content was rewritten → `"rewrote_content"`
-- Otherwise → `"minor_tweaks"`
+**On Modify:** After generating the revised artifact, classify the modification based on the user's requested changes (infer from context -- do not ask the user to pick a category):
+- User asked for approval steps, confirmation, dry-run, or human-in-the-loop -> `"added_approval_gate"`
+- User narrowed scope (fewer files, events, triggers) -> `"narrowed_scope"`
+- >50% of content was rewritten -> `"rewrote_content"`
+- Otherwise -> `"minor_tweaks"`
 
 Record as `modification_type` in the outcome. Example: `{"id": "auto-lint-hook", "status": "applied", "type": "hook", "modification_type": "added_approval_gate"}`.
-
-### Deep proposals (deep mode only)
-
-After script proposal review, check if the background agent completed:
-- **Done**: merge and present new proposals in a second batch.
-- **Still running**: wait ("Finishing deep analysis..."). The user opted into deep mode.
-- **Not running**: skip.
 
 Show draft artifact content only for approved/modified proposals. **Wait for explicit approval before writing files.**
 
@@ -121,7 +104,7 @@ Skip any proposal where `valid` is false and warn the user.
 
 Run `mkdir -p` for all needed directories in one batch.
 
-Generate artifact content following templates. **For safety-flagged proposals** (those in `safety_flagged_ids`): the generated hook or agent MUST include a human approval mechanism — a confirmation prompt, dry-run flag, or explicit user gate. Do not generate automation that runs silently if the safety gate is active.
+Generate artifact content following templates. **For safety-flagged proposals** (those in `safety_flagged_ids`): the generated hook or agent MUST include a human approval mechanism -- a confirmation prompt, dry-run flag, or explicit user gate. Do not generate automation that runs silently if the safety gate is active.
 
 Write each type:
 - **CLAUDE.md entries**: Append. Warn if over 200 lines after.

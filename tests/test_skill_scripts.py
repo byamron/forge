@@ -97,7 +97,7 @@ class TestFormatProposals:
         data = {
             "proposals": [],
             "context_health": {},
-            "deep_analysis_cache": {"proposals": [], "timestamp": 123},
+            "deep_analysis_cache": {"filtered_proposals": [], "additional_proposals": [], "removed_count": 0, "removal_reasons": [], "timestamp": 123},
         }
         rc, out, _ = run_script("format-proposals.py", json.dumps(data))
         assert rc == 0

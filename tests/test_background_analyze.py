@@ -261,7 +261,8 @@ class TestHookMode:
 
 
 class TestRunMode:
-    def test_runs_cache_manager(self, user_data_dir, monkeypatch):
+    def test_runs_cache_manager_and_deep_analysis(self, user_data_dir, monkeypatch):
+        """After successful Phase A, deep analysis always runs."""
         project, data_dir = user_data_dir
         # Create lock file (as the hook mode would)
         lock = data_dir / "analysis.lock"
@@ -279,7 +280,8 @@ class TestRunMode:
         mock_result.returncode = 0
 
         with patch.object(pi, "_get_git_remote_url", return_value=None), \
-             patch("subprocess.run", return_value=mock_result) as mock_run:
+             patch("subprocess.run", return_value=mock_result) as mock_run, \
+             patch.object(ba, "_run_deep_analysis") as mock_deep:
             ba._run_analysis(project, str(plugin_root), data_dir)
 
         # Verify cache-manager was called
@@ -288,12 +290,40 @@ class TestRunMode:
         assert "cache-manager.py" in cmd[1]
         assert "--update" in cmd
 
+        # Verify deep analysis was always called (no settings check)
+        mock_deep.assert_called_once_with(
+            project, str(plugin_root), data_dir
+        )
+
         # Verify lock was cleaned up
         assert not lock.exists()
 
         # Verify unanalyzed log was cleared
         log = data_dir / "unanalyzed-sessions.log"
         assert log.read_text(encoding="utf-8") == ""
+
+    def test_deep_analysis_not_called_on_phase_a_failure(self, user_data_dir, monkeypatch):
+        """Deep analysis should not run if Phase A fails."""
+        project, data_dir = user_data_dir
+        lock = data_dir / "analysis.lock"
+        lock.write_text(str(int(time.time())), encoding="utf-8")
+        _write_sessions(data_dir, 5)
+
+        plugin_root = project / "fake-plugin"
+        scripts_dir = plugin_root / "scripts"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "cache-manager.py").write_text("# stub", encoding="utf-8")
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1  # failure
+
+        with patch.object(pi, "_get_git_remote_url", return_value=None), \
+             patch("subprocess.run", return_value=mock_result), \
+             patch.object(ba, "_run_deep_analysis") as mock_deep:
+            ba._run_analysis(project, str(plugin_root), data_dir)
+
+        # Deep analysis should NOT be called after Phase A failure
+        mock_deep.assert_not_called()
 
     def test_lock_cleaned_on_error(self, user_data_dir, monkeypatch):
         project, data_dir = user_data_dir
@@ -353,3 +383,280 @@ class TestRunMode:
 
         # Lock cleaned up, no crash
         assert not lock.exists()
+
+
+# ---------------------------------------------------------------------------
+# Deep analysis: prompt building and result parsing
+# ---------------------------------------------------------------------------
+
+
+class TestBuildDeepPrompt:
+    def test_builds_prompt_with_proposals_and_pairs(self, tmp_path):
+        """Prompt includes script proposals, conversation pairs, and new output instructions."""
+        agent_path = tmp_path / "session-analyzer.md"
+        agent_path.write_text(
+            "---\nname: session-analyzer\n---\nYou are the analyzer.",
+            encoding="utf-8",
+        )
+        proposals = [{"id": "test-rule", "type": "rule", "impact": "high"}]
+        pairs = [{"session_id": "s1", "user_text": "use vitest"}]
+
+        prompt = ba._build_deep_prompt(proposals, pairs, agent_path)
+
+        assert prompt is not None
+        assert "You are the analyzer." in prompt
+        assert "test-rule" in prompt
+        assert "use vitest" in prompt
+        # Verify the prompt asks for the new output format
+        assert "filtered_proposals" in prompt
+        assert "additional_proposals" in prompt
+        assert "removed_count" in prompt
+        assert "removal_reasons" in prompt
+
+    def test_returns_none_for_missing_agent(self, tmp_path):
+        agent_path = tmp_path / "nonexistent.md"
+        result = ba._build_deep_prompt([], [], agent_path)
+        assert result is None
+
+    def test_strips_yaml_frontmatter(self, tmp_path):
+        agent_path = tmp_path / "session-analyzer.md"
+        agent_path.write_text(
+            "---\nname: test\nmodel: sonnet\n---\nBody content here.",
+            encoding="utf-8",
+        )
+        prompt = ba._build_deep_prompt([], [], agent_path)
+        assert "Body content here." in prompt
+        assert "name: test" not in prompt
+
+    def test_truncates_pairs_to_max(self, tmp_path):
+        agent_path = tmp_path / "session-analyzer.md"
+        agent_path.write_text("---\nname: test\n---\nAnalyze.", encoding="utf-8")
+        pairs = [{"id": f"pair-{i}"} for i in range(50)]
+
+        prompt = ba._build_deep_prompt([], pairs, agent_path)
+        # Should only include DEEP_MAX_PAIRS (30)
+        assert "pair-29" in prompt
+        assert "pair-30" not in prompt
+
+
+class TestRunDeepAnalysis:
+    def test_caches_new_format_result(self, user_data_dir, monkeypatch):
+        """Deep analysis caches the new format with filtered/additional proposals."""
+        project, data_dir = user_data_dir
+        plugin_root = project / "fake-plugin"
+        agents_dir = plugin_root / "agents"
+        agents_dir.mkdir(parents=True)
+        (agents_dir / "session-analyzer.md").write_text(
+            "---\nname: test\n---\nAnalyze.", encoding="utf-8"
+        )
+
+        # Write cached proposals and transcripts
+        cache_dir = data_dir / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        (cache_dir / "proposals.json").write_text(
+            json.dumps({"proposals": [{"id": "p1", "type": "rule"}]}),
+            encoding="utf-8",
+        )
+        (cache_dir / "transcripts.json").write_text(
+            json.dumps({
+                "version": 1,
+                "result": {
+                    "conversation_pairs_sample": [
+                        {"session_id": "s1", "user_text": "test"}
+                    ]
+                }
+            }),
+            encoding="utf-8",
+        )
+
+        # Mock the LLM returning new format
+        llm_output = json.dumps({
+            "filtered_proposals": [{"id": "p1", "type": "rule", "impact": "medium"}],
+            "additional_proposals": [{"id": "deep1", "source": "deep_analysis"}],
+            "removed_count": 0,
+            "removal_reasons": [],
+        })
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = llm_output
+
+        with patch("shutil.which", return_value="/usr/bin/claude"), \
+             patch("subprocess.run", return_value=mock_proc):
+            ba._run_deep_analysis(project, str(plugin_root), data_dir)
+
+        # Verify the cache was written with the new format
+        deep_cache = cache_dir / "deep-analysis.json"
+        assert deep_cache.is_file()
+        cached = json.loads(deep_cache.read_text(encoding="utf-8"))
+        assert "filtered_proposals" in cached
+        assert "additional_proposals" in cached
+        assert "removed_count" in cached
+        assert "removal_reasons" in cached
+        assert cached["filtered_proposals"][0]["id"] == "p1"
+        assert cached["additional_proposals"][0]["id"] == "deep1"
+        assert cached["source"] == "background_deep_analysis"
+
+    def test_handles_legacy_array_output(self, user_data_dir, monkeypatch):
+        """If LLM returns a plain array (legacy), convert to new format."""
+        project, data_dir = user_data_dir
+        plugin_root = project / "fake-plugin"
+        agents_dir = plugin_root / "agents"
+        agents_dir.mkdir(parents=True)
+        (agents_dir / "session-analyzer.md").write_text(
+            "---\nname: test\n---\nAnalyze.", encoding="utf-8"
+        )
+
+        cache_dir = data_dir / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        script_proposals = [{"id": "p1", "type": "rule"}]
+        (cache_dir / "proposals.json").write_text(
+            json.dumps({"proposals": script_proposals}),
+            encoding="utf-8",
+        )
+        (cache_dir / "transcripts.json").write_text(
+            json.dumps({
+                "version": 1,
+                "result": {
+                    "conversation_pairs_sample": [
+                        {"session_id": "s1", "user_text": "test"}
+                    ]
+                }
+            }),
+            encoding="utf-8",
+        )
+
+        # LLM returns legacy array format
+        llm_output = json.dumps([{"id": "deep1", "source": "deep_analysis"}])
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = llm_output
+
+        with patch("shutil.which", return_value="/usr/bin/claude"), \
+             patch("subprocess.run", return_value=mock_proc):
+            ba._run_deep_analysis(project, str(plugin_root), data_dir)
+
+        deep_cache = cache_dir / "deep-analysis.json"
+        cached = json.loads(deep_cache.read_text(encoding="utf-8"))
+        # Legacy array should be converted: proposals become filtered, array becomes additional
+        assert cached["filtered_proposals"] == script_proposals
+        assert cached["additional_proposals"] == [{"id": "deep1", "source": "deep_analysis"}]
+        assert cached["removed_count"] == 0
+
+    def test_skips_when_no_pairs(self, user_data_dir, monkeypatch):
+        """Deep analysis should skip when no conversation pairs exist."""
+        project, data_dir = user_data_dir
+        plugin_root = project / "fake-plugin"
+        agents_dir = plugin_root / "agents"
+        agents_dir.mkdir(parents=True)
+        (agents_dir / "session-analyzer.md").write_text(
+            "---\nname: test\n---\nAnalyze.", encoding="utf-8"
+        )
+
+        cache_dir = data_dir / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        (cache_dir / "proposals.json").write_text(
+            json.dumps({"proposals": []}), encoding="utf-8"
+        )
+        # No conversation pairs
+        (cache_dir / "transcripts.json").write_text(
+            json.dumps({"version": 1, "result": {"conversation_pairs_sample": []}}),
+            encoding="utf-8",
+        )
+
+        with patch("shutil.which", return_value="/usr/bin/claude"), \
+             patch("subprocess.run") as mock_run:
+            ba._run_deep_analysis(project, str(plugin_root), data_dir)
+
+        # subprocess.run should not be called (no pairs to analyze)
+        mock_run.assert_not_called()
+
+    def test_skips_when_no_claude_cli(self, user_data_dir, monkeypatch):
+        """Deep analysis should skip gracefully when claude CLI is not installed."""
+        project, data_dir = user_data_dir
+
+        with patch("shutil.which", return_value=None), \
+             patch("subprocess.run") as mock_run:
+            ba._run_deep_analysis(project, str(project), data_dir)
+
+        mock_run.assert_not_called()
+
+    def test_handles_llm_failure(self, user_data_dir, monkeypatch):
+        """Deep analysis handles LLM process failure gracefully."""
+        project, data_dir = user_data_dir
+        plugin_root = project / "fake-plugin"
+        agents_dir = plugin_root / "agents"
+        agents_dir.mkdir(parents=True)
+        (agents_dir / "session-analyzer.md").write_text(
+            "---\nname: test\n---\nAnalyze.", encoding="utf-8"
+        )
+
+        cache_dir = data_dir / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        (cache_dir / "proposals.json").write_text(
+            json.dumps({"proposals": [{"id": "p1"}]}), encoding="utf-8"
+        )
+        (cache_dir / "transcripts.json").write_text(
+            json.dumps({
+                "version": 1,
+                "result": {
+                    "conversation_pairs_sample": [{"session_id": "s1", "user_text": "t"}]
+                }
+            }),
+            encoding="utf-8",
+        )
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1  # failure
+
+        with patch("shutil.which", return_value="/usr/bin/claude"), \
+             patch("subprocess.run", return_value=mock_proc):
+            # Should not raise
+            ba._run_deep_analysis(project, str(plugin_root), data_dir)
+
+        # No deep cache should be written
+        assert not (cache_dir / "deep-analysis.json").is_file()
+
+    def test_strips_markdown_fences_from_output(self, user_data_dir, monkeypatch):
+        """LLM output wrapped in markdown fences should be handled."""
+        project, data_dir = user_data_dir
+        plugin_root = project / "fake-plugin"
+        agents_dir = plugin_root / "agents"
+        agents_dir.mkdir(parents=True)
+        (agents_dir / "session-analyzer.md").write_text(
+            "---\nname: test\n---\nAnalyze.", encoding="utf-8"
+        )
+
+        cache_dir = data_dir / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        (cache_dir / "proposals.json").write_text(
+            json.dumps({"proposals": []}), encoding="utf-8"
+        )
+        (cache_dir / "transcripts.json").write_text(
+            json.dumps({
+                "version": 1,
+                "result": {
+                    "conversation_pairs_sample": [{"session_id": "s1", "user_text": "t"}]
+                }
+            }),
+            encoding="utf-8",
+        )
+
+        result_obj = {
+            "filtered_proposals": [],
+            "additional_proposals": [],
+            "removed_count": 0,
+            "removal_reasons": [],
+        }
+        fenced_output = f"```json\n{json.dumps(result_obj)}\n```"
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = fenced_output
+
+        with patch("shutil.which", return_value="/usr/bin/claude"), \
+             patch("subprocess.run", return_value=mock_proc):
+            ba._run_deep_analysis(project, str(plugin_root), data_dir)
+
+        cached = json.loads(
+            (cache_dir / "deep-analysis.json").read_text(encoding="utf-8")
+        )
+        assert cached["removed_count"] == 0

@@ -23,9 +23,7 @@ git config core.hooksPath .githooks
 | Command | What it does |
 |---------|-------------|
 | `/forge` | Analyze your setup and walk through improvements |
-| `/forge --deep` | Same, with an LLM pass for contextual pattern detection (~5K tokens) |
-| `/forge --quick` | Same, script-only (zero tokens, fastest) |
-| `/forge:settings` | Configure nudge frequency and analysis depth |
+| `/forge:settings` | Configure nudge frequency |
 | `/forge:version` | Check installed version and freshness |
 
 ## What you'll see
@@ -69,14 +67,7 @@ Configure via `/forge:settings`:
 | `balanced` (default) | Nudge when proposals are pending or after 5+ sessions since last analysis. |
 | `eager` | Nudge when proposals are pending or after 2+ sessions. |
 
-**Analysis depth** — controls what happens when you run `/forge`:
-
-| Depth | Behavior |
-|-------|----------|
-| `standard` (default) | Script-only analysis. Fast, zero token cost. |
-| `deep` | Scripts + background LLM pass. Finds contextual patterns (position-aware signals, implicit preferences, approval gates). |
-
-You can override depth per-invocation with `--deep` or `--quick`.
+Forge automatically runs an LLM quality gate in the background after each analysis cycle (~5K tokens). This filters out generic patterns and finds contextual signals the scripts cannot detect.
 
 ## What Forge generates
 
@@ -97,7 +88,7 @@ Forge operates in a **collect, analyze, review, generate** pipeline:
 
 1. **Collect** — session transcripts, `.claude/` configuration, and auto-memory are read locally
 2. **Analyze** (zero tokens) — Python scripts scan for repeated patterns, config gaps, and optimization opportunities
-3. **Deep analysis** (optional, ~5K tokens) — an LLM pass finds contextual patterns scripts can't detect, running in the background so you can keep working
+3. **Quality gate** (~5K tokens) — an LLM pass filters out generic patterns and finds contextual signals scripts can't detect, running in the background so you can keep working
 4. **Review** — proposals are ranked by impact and presented for your decision
 5. **Generate** — approved artifacts are drafted, shown for final approval, and placed in the correct locations
 
