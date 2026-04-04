@@ -465,6 +465,37 @@ def _read_deep_analysis_cache(root: Path) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _read_last_run(root: Path) -> Optional[List[Dict[str, Any]]]:
+    """Read previous proposal summaries from last-run.json."""
+    path = cache_dir(root) / "last-run.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _write_last_run(root: Path, proposals: List[Dict[str, Any]]) -> None:
+    """Store current proposal id+impact for next-run comparison."""
+    summaries = [
+        {"id": p.get("id", ""), "impact": p.get("impact", ""), "type": p.get("type", "")}
+        for p in proposals
+    ]
+    cdir = cache_dir(root)
+    cdir.mkdir(parents=True, exist_ok=True)
+    target = cdir / "last-run.json"
+    target.write_text(json.dumps(summaries, indent=2), encoding="utf-8")
+
+
+def _read_feedback_signals(root: Path) -> Optional[Dict[str, Any]]:
+    """Read project-level feedback signals for calibration notes."""
+    fs_path = get_project_data_dir(root) / "feedback_signals.json"
+    try:
+        return json.loads(fs_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, Any]:
     """Get proposals: use cached if available, otherwise build fresh.
 
@@ -478,6 +509,20 @@ def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, An
     # Check for cached deep analysis results from background-analyze.py
     deep_cache = _read_deep_analysis_cache(root)
 
+    # Load previous run for "what changed" comparison
+    previous_proposals = _read_last_run(root)
+
+    # Load feedback signals for calibration notes
+    feedback_signals = _read_feedback_signals(root)
+
+    def _enrich(proposals: Dict[str, Any]) -> Dict[str, Any]:
+        proposals["cache_status"] = statuses
+        proposals["conversation_pairs_sample"] = _extract_pairs_sample(root)
+        proposals["deep_analysis_cache"] = deep_cache
+        proposals["previous_proposals"] = previous_proposals
+        proposals["feedback_signals"] = feedback_signals
+        return proposals
+
     # Return cached proposals only if no analysis was refreshed
     proposals_path = cache_dir(root) / "proposals.json"
     if not any_updated:
@@ -486,10 +531,7 @@ def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, An
                 proposals_path.read_text(encoding="utf-8")
             )
             if isinstance(proposals, dict) and "proposals" in proposals:
-                proposals["cache_status"] = statuses
-                proposals["conversation_pairs_sample"] = _extract_pairs_sample(root)
-                proposals["deep_analysis_cache"] = deep_cache
-                return proposals
+                return _enrich(proposals)
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -500,16 +542,15 @@ def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, An
             proposals_path.read_text(encoding="utf-8")
         )
         if isinstance(proposals, dict):
-            proposals["cache_status"] = statuses
-            proposals["conversation_pairs_sample"] = _extract_pairs_sample(root)
-            proposals["deep_analysis_cache"] = deep_cache
-            return proposals
+            return _enrich(proposals)
     except (OSError, json.JSONDecodeError):
         pass
 
     return {"proposals": [], "context_health": {}, "cache_status": statuses,
             "conversation_pairs_sample": [],
-            "deep_analysis_cache": None}
+            "deep_analysis_cache": None,
+            "previous_proposals": previous_proposals,
+            "feedback_signals": feedback_signals}
 
 
 # ---------------------------------------------------------------------------
@@ -525,6 +566,8 @@ def main():
                        help="Run stale scripts and update cache")
     group.add_argument("--proposals", action="store_true",
                        help="Get ready-to-present proposals (runs analysis if needed)")
+    group.add_argument("--save-last-run", action="store_true",
+                       help="Save filtered proposal IDs from stdin for next-run comparison")
     parser.add_argument("--project-root", type=str, default=None)
     parser.add_argument("--plugin-root", type=str, default=None)
     args = parser.parse_args()
@@ -555,6 +598,24 @@ def main():
         result = get_proposals(root, plugin_root)
         json.dump(result, sys.stdout, indent=2)
         sys.stdout.write("\n")
+    elif args.save_last_run:
+        # Read filtered proposals from stdin and save for next-run comparison.
+        # Called by /forge after the quality filter so last-run.json reflects
+        # what the user actually saw, not the unfiltered script output.
+        try:
+            raw = sys.stdin.read()
+            proposals_list = json.loads(raw)
+            if isinstance(proposals_list, list):
+                _write_last_run(root, proposals_list)
+                json.dump({"status": "saved", "count": len(proposals_list)},
+                          sys.stdout)
+                sys.stdout.write("\n")
+            else:
+                print("Error: expected JSON array on stdin", file=sys.stderr)
+                sys.exit(1)
+        except json.JSONDecodeError as e:
+            print("Error: invalid JSON: {}".format(e), file=sys.stderr)
+            sys.exit(1)
 
 
 if __name__ == "__main__":

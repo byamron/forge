@@ -65,6 +65,36 @@ FB-0002: Users couldn't tell Forge was working. Four hooks ran every session but
 - Three-level nudge (quiet/balanced/eager) vs. single boolean: kept the three levels for session-count nudges since they're already shipped and provide real granularity. Added proactive as a separate boolean because it's a fundamentally different behavior (showing proposals vs. showing counts).
 - systemMessage reliability: Claude may or may not surface systemMessage content. Accepted this limitation — proactive proposals include enough detail that if Claude does surface them, the user gets real value. If not, `/forge` remains the guaranteed path. Alternative was a `prompt`-type hook that forces a response, but that would interrupt the user's actual task.
 
+### Proposal presentation improvements (P2)
+**Date:** 2026-04-04
+**Branch:** p2-effectiveness-tracking
+
+**What was done:**
+Four presentation improvements to format-proposals.py and SKILL.md:
+1. **"What changed" section** — compares current proposals to previous run via `last-run.json` cache. Reports new, removed, and impact-adjusted proposals.
+2. **Longer truncation** — description 60→80 chars, evidence 60→100 chars in the proposal table.
+3. **Calibration notes** — surfaces active feedback mechanisms: impact deflation (when dismissals outnumber approvals), safety gate, skip decay. Users see *why* proposals changed, not just *what* changed.
+4. **Complex proposal previews** — SKILL.md now instructs showing 3-5 line `suggested_content` preview for demotion/reference_doc proposals in AskUserQuestion.
+
+**Why:**
+P0 validation found proposals felt opaque — users couldn't tell why impact was rated as it was, what changed between runs, or what a demotion would actually produce. FB-0001 and FB-0002 established that Forge needs to be self-explaining.
+
+**Design decisions:**
+- `last-run.json` stores only `{id, impact, type}` per proposal — minimal footprint, sufficient for diff.
+- Calibration notes are derived from `feedback_signals.json` at format time, not pre-computed during build. This keeps build-proposals.py focused on proposal generation and format-proposals.py focused on presentation.
+- Impact deflation threshold: dismissed >= 3 AND dismissed > 2x approved. Conservative — avoids showing the note on a single dismissal.
+
+**Technical decisions:**
+- `last-run.json` is written by a `--save-last-run` mode on cache-manager.py, called by SKILL.md *after* the quality filter runs. This ensures the comparison is between filtered proposal sets (what the user actually saw), not raw script output. An earlier version wrote it from `get_proposals()` which would have caused spurious "removed" entries for LLM-filtered proposals.
+- `cache-manager.py` passes `previous_proposals` and `feedback_signals` through to format-proposals.py via the proposals JSON.
+- `build_calibration_notes()` and `build_changes_summary()` are pure functions in format-proposals.py. No side effects, easy to test.
+
+**Tradeoffs:**
+- Could have put calibration logic in build-proposals.py (closer to the source data), but that would mix proposal generation with presentation. Keeping it in format-proposals.py follows the existing separation of concerns.
+- Could have shown full evidence in the table (not truncated), but wider tables wrap poorly in terminal. The SKILL.md already shows full evidence in AskUserQuestion descriptions.
+
+**Tests:** 9 new tests in test_skill_scripts.py covering changes_summary (new, removed, impact-changed, no-previous, no-changes), truncation limits, and calibration notes (deflation, safety gate, skip decay, absent signals). 497 total tests pass.
+
 ### Analyzer unit tests + test suite quality audit (P4)
 **Date:** 2026-04-04
 **Branch:** analyzer-unit-tests
