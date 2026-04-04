@@ -41,7 +41,7 @@ If a workflow involves iterative feedback (write->get feedback->revise->get feed
 
 ### Downgrade impact for weak evidence
 
-If a proposal's evidence is thin (low occurrence count, single session, vague description), downgrade its `impact` from "high" to "medium" or from "medium" to "low". Low-impact proposals are filtered out downstream.
+If a proposal's evidence comes from fewer than 3 occurrences or fewer than 2 sessions, downgrade its `impact` from "high" to "medium". If from only 1 session, downgrade to "low" (which is filtered out downstream). Vague descriptions that don't name specific tools, commands, or file patterns are also weak evidence.
 
 ### Flag duplicates
 

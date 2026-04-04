@@ -35,7 +35,7 @@ Returns JSON with `proposals`, `context_health`, `conversation_pairs_sample`, an
 
 ## Step 1b: Apply quality filter from deep analysis
 
-1. If `deep_analysis_cache` is not null: use its `filtered_proposals` as the proposal set (these are the script proposals that passed the LLM quality gate). Append `additional_proposals` after them. Sort by impact (high first). This replaces the raw script proposals entirely.
+1. If `deep_analysis_cache` is not null: use its `filtered_proposals` as the proposal set (these are the script proposals that passed the LLM quality gate). Append `additional_proposals` after them. Sort by impact (high first). This replaces the raw script proposals entirely. If `filtered_proposals` is empty but `additional_proposals` has items, use `additional_proposals` alone — the LLM filtered out all script proposals but found its own patterns.
 2. If `deep_analysis_cache` is null: the LLM quality filter has not run yet for this analysis cycle. Use the raw script `proposals` directly. Note to the user: "Forge's quality filter will run in the background for your next session."
 
 ## Step 2: Format and present results

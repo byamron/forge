@@ -302,6 +302,36 @@ class TestRunMode:
         log = data_dir / "unanalyzed-sessions.log"
         assert log.read_text(encoding="utf-8") == ""
 
+    def test_deep_analysis_runs_regardless_of_settings(self, user_data_dir, monkeypatch):
+        """Deep analysis is not gated by nudge_level or any other setting."""
+        project, data_dir = user_data_dir
+        lock = data_dir / "analysis.lock"
+        lock.write_text(str(int(time.time())), encoding="utf-8")
+        _write_sessions(data_dir, 5)
+
+        plugin_root = project / "fake-plugin"
+        scripts_dir = plugin_root / "scripts"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "cache-manager.py").write_text("# stub", encoding="utf-8")
+
+        # Write settings with quiet nudge — deep should STILL run
+        settings_dir = data_dir
+        settings_dir.mkdir(parents=True, exist_ok=True)
+        (settings_dir / "settings.json").write_text(
+            '{"nudge_level": "quiet"}', encoding="utf-8"
+        )
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+
+        with patch.object(pi, "_get_git_remote_url", return_value=None), \
+             patch("subprocess.run", return_value=mock_result), \
+             patch.object(ba, "_run_deep_analysis") as mock_deep:
+            ba._run_analysis(project, str(plugin_root), data_dir)
+
+        # Deep analysis must run regardless of settings
+        mock_deep.assert_called_once()
+
     def test_deep_analysis_not_called_on_phase_a_failure(self, user_data_dir, monkeypatch):
         """Deep analysis should not run if Phase A fails."""
         project, data_dir = user_data_dir
