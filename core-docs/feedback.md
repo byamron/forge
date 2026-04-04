@@ -93,4 +93,14 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 **Applies to:** analysis_depth setting (remove it), session-analyzer agent role, pipeline architecture, settings design philosophy
 
+### FB-0007: Settings must guarantee a UX change or they aren't worth having
+**Date:** 2026-04-03
+**Source:** user direction
+
+**What was said:** Three issues with the nudge/eagerness setting: (1) "only analyzes when you run /forge" is ambiguous — unclear if it means no background prep or no presentation; (2) session count is the wrong unit — the unit of value is proposals, not sessions; (3) "Claude may or may not surface it" means the setting doesn't guarantee any UX change, which makes it not worth having. If changing a setting doesn't reliably change what the user experiences, the setting shouldn't exist.
+
+**Synthesized rule:** Every user-facing setting must have a clear, observable effect. If the user changes a setting and can't tell the difference, the setting is broken. For Forge: the trigger should be proposal-based (not session-count-based), the notification must be reliable (not dependent on Claude's discretion), and "quiet" must mean something specific and useful. Consider collapsing quiet/balanced/eager into a single boolean if the complexity isn't justified.
+
+**Applies to:** nudge_level setting, check-pending.py, P1 ambient presence design, settings philosophy
+
 <!-- Add new entries below this line, newest first. -->

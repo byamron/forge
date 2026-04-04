@@ -8,10 +8,53 @@ Post-review reprioritization (2026-04-03). Phase 4: Quality & Polish. Comprehens
 
 ## Handoff Notes
 
-- Deep analysis is now always-on (v0.3.7). The `analysis_depth` setting was removed. The LLM quality gate runs after every background analysis cycle. Still needs end-to-end verification that `claude -p --bare` invocation works on a real project.
-- Labeled eval data at `tests/scoring_eval/labeled/*.json` (gitignored). 113 pairs labeled, classifier tuned to 100% precision / 86.7% recall.
-- The feedback loop (v0.3.5) needs real-world validation — run `/forge` on a project, dismiss/modify proposals, then run `/forge` again to verify the calibration kicks in.
-- Code review consensus: architecture is sound (B+ to A-), main gaps are error handling, test coverage for analyzers, and UX observability.
+**Where we are (2026-04-03):** P0 validation complete on the Forge repo (v0.3.7). LLM quality gate is always-on, script-side fixes shipped (staleness ratio, demotion scaling, duplicate IDs). 419 tests, all passing. READMEs rewritten.
+
+**What to do next — start these workspaces:**
+
+### Workspace 1: P0 validation (portfolio-site + PriorityAppXcode)
+Run `/forge` on each project, record outcomes, dismiss some proposals, run again to verify calibration (impact deflation, safety gate, skip decay). This is manual testing — run the command, interact with proposals, document results. Findings go into `core-docs/plan.md` under the P0 validation results section.
+
+### Workspace 2: P1 design + implementation (ambient presence)
+Resolve the open design questions first (see below), then implement. This is the biggest UX change — how Forge communicates with the user between `/forge` runs. **Depends on P0 validation insights** (what proposals look like on real projects informs how they should be surfaced proactively).
+
+### Workspace 3: P4 analyzer unit tests (can run in parallel with 1 and 2)
+Write `test_analyze_config.py` and `test_analyze_memory.py`. Pure test writing, no dependency on P0/P1 decisions. 40-60 new tests.
+
+### Workspace 4: P6 CI/CD (can run in parallel with everything)
+Create `.github/workflows/test.yml`. Pure infrastructure, no dependencies.
+
+### Sequential (do after P1):
+- **P2** (proposal presentation) — depends on P1 decisions about how proposals are surfaced
+- **P3** (reliability + `/forge --diagnose`) — can start in parallel but `diagnose.py` output depends on P1 settings design
+- **P5** (explain mode) — independent but lower priority
+
+### Parallelization summary:
+
+```
+                    ┌─── Workspace 3: P4 tests (independent)
+                    │
+Workspace 1: P0 ───┤
+  validation        │
+                    ├─── Workspace 4: P6 CI/CD (independent)
+                    │
+                    └─── Workspace 2: P1 design + impl (needs P0 insights)
+                              │
+                              ├─── P2 presentation (after P1)
+                              ├─── P3 reliability (after P1 settings)
+                              └─── P5 explain mode (after P1, low priority)
+```
+
+**Open design questions for P1** (must resolve before implementing):
+- **"Quiet" mode is confusing.** "Only analyzes when you run `/forge`" is ambiguous — does it mean no background prep, or no proposals presented? The user should understand exactly what changes when they change a setting.
+- **Session count is the wrong trigger.** The unit of value is proposals, not sessions. 5 sessions with no new patterns shouldn't trigger anything. The trigger should be: "Forge has new proposals ready" — not "enough sessions passed."
+- **System messages are unreliable.** Claude may or may not surface them. A setting that says "nudge me more" but doesn't guarantee visibility isn't worth having. P1 must solve this — either make the signal reliable (prompt-type hook? structured output?) or remove the setting.
+- **The nudge setting may collapse entirely.** If background analysis always runs and proactive proposals always surface when available, the only meaningful toggle is "show me proposals at session start: yes/no." Quiet/balanced/eager may be unnecessary complexity.
+- **Every setting must guarantee an observable UX change** (FB-0007). If changing a setting doesn't reliably change what the user experiences, the setting shouldn't exist.
+
+**Still needs verification:**
+- `claude -p --bare` invocation in `background-analyze.py` — untested end-to-end on a real project
+- Feedback loop calibration — need to dismiss proposals on portfolio-site, run `/forge` again, verify impact deflation and safety gate activate
 
 ## Spec & Roadmap
 
@@ -176,6 +219,12 @@ First run on tacoma (29 sessions). 9 proposals, 1 approved (modified), 5 dismiss
 **Priority:** HIGH — Forge runs 4 hooks every session but users can't tell. Without this, `/forge` feels manual.
 **Goal:** High-confidence proposals surface at session start without running `/forge`. Users always know Forge is watching.
 **Impacts:** UX
+
+**Open design questions (must resolve before implementing):**
+1. **What is the right trigger?** Session count is arbitrary. Proposals ready is the real signal. Should background analysis just always run (every SessionStart) and surface results when they exist?
+2. **How do we guarantee visibility?** `systemMessage` is unreliable — Claude decides whether to mention it. Options: (a) use a `prompt`-type hook that forces Claude to respond, (b) output directly to user via hook stdout, (c) accept the unreliability and make `/forge` the guaranteed path. Need to research what hook types guarantee user visibility.
+3. **Does the nudge setting still make sense?** If analysis always runs and proposals always surface when ready, the only toggle is "show me proposals at session start: yes/no." Three levels (quiet/balanced/eager) may be unnecessary complexity. Consider collapsing to a single boolean: `proactive_proposals: true/false`.
+4. **What does "quiet" actually mean?** If a user picks quiet, should background analysis still run (proposals ready when they run `/forge`) or should nothing happen at all? The former is more useful; the latter is what the current code does.
 
 **Implementation plan:**
 
