@@ -42,14 +42,13 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 **Branch:** analyzer-unit-tests
 
 **What was done:**
-Added 84 new unit tests for `analyze-config.py` (53 tests) and `analyze-memory.py` (31 tests). Audited all 419 pre-existing tests and removed 15 shallow tests from 4 files. Fixed a time-dependent fixture bug that caused `test_correction_theme_detected` to fail after 7 days. Total suite: 488 tests, all passing.
+Added 84 new unit tests for `analyze-config.py` (53 tests) and `analyze-memory.py` (31 tests). Audited all pre-existing tests and removed 15 shallow tests from 4 files. Total suite: 488 tests, all passing.
 
 **Why:**
-P4 from the roadmap — edge cases in analysis scripts weren't covered. During the work, a critical evaluation of test quality revealed ~25 shallow tests across the suite (dict constant assertions, trivially obvious branches, duplicate coverage). The pre-existing test failure was caused by hardcoded timestamps aging past the recency scoring threshold.
+P4 from the roadmap — edge cases in analysis scripts weren't covered. During the work, a critical evaluation of test quality revealed ~25 shallow tests across the suite (dict constant assertions, trivially obvious branches, duplicate coverage).
 
 **Design decisions:**
 - Every test must protect against a plausible regression or document non-obvious behavior. Tests that assert dictionary constants or trivially obvious stdlib behavior were cut rather than maintained.
-- Fixture timestamps changed from hardcoded `2026-03-28` to `now() - 2 days` to make the integration pipeline time-independent.
 - `test_plugin_manifest.py` and `test_security.py` kept despite being linting-style tests — they guard against documented bugs until CI (P6) provides proper linting.
 
 **Technical decisions:**
@@ -60,6 +59,70 @@ P4 from the roadmap — edge cases in analysis scripts weren't covered. During t
 **Tradeoffs discussed:**
 - 117 new tests written initially, then cut to 84 after critical review. The initial count was inflated by shallow patterns common in AI-generated tests. Fewer meaningful tests are better than many trivial ones.
 - Considered converting security grep-tests to pre-commit hooks, but deferred to P6 when CI infrastructure is built.
+
+---
+
+### P0 validation: portfolio-site + PriorityAppXcode
+**Date:** 2026-04-04
+**Branch:** test-forge-validation
+
+**What was done:**
+Ran the full Forge analysis pipeline against two real user projects (portfolio-site with 30 sessions, PriorityAppXcode with 17 sessions). Recorded all proposals, simulated user decisions (approve/dismiss/skip), then re-ran to test feedback loop calibration.
+
+**Why:**
+P0 validation — needed to verify proposal quality and calibration mechanisms on real projects beyond the Forge repo itself. The Forge repo validation (11% acceptance) suggested deep problems; needed to confirm they're systematic.
+
+**Design decisions:**
+- Dismissed agents for "not_relevant" rather than "low_impact" — because the problem isn't that agents have low impact, it's that they're not project-specific workflows at all. This distinction matters for calibration (low_impact triggers impact deflation, not_relevant doesn't).
+
+**Technical decisions:**
+- Ran pipeline via scripts directly rather than through `/forge` skill — allowed controlled testing of each stage and inspection of intermediate data.
+
+**Findings (real projects — agent-simulated decisions):**
+- Raw proposal acceptance: 0% (portfolio-site), 22% (PriorityAppXcode)
+- 44% of all proposals are memory promotions — all dismissed, all low quality
+- 26% are generic workflow agents — all dismissed, identical across projects
+- Applied-ID filter bug: `build_proposals()` doesn't filter applied proposal IDs, so demotions regenerated from config analysis reappear
+- Memory/correction overlap: `_build_from_memory` and `_build_from_corrections` generate duplicate proposals from same user feedback
+- Calibration mechanisms (dismissed filtering, feedback signals, skip counts) all work correctly
+
+**Findings (synthetic profiles — deterministic):**
+- react-ts: 6/6 good proposals (demotions + hooks). Config-only projects produce clean results.
+- swift-ios: 10/10 bad (all memory promotions). Memory builder is the #1 noise source.
+- fullstack-mature: dismissed/suppressed filtering confirmed working.
+- rust-minimal: 0 proposals. Threshold enforcement prevents false positives.
+- Gap: synthetic data doesn't generate workflow agents (no read→write→execute patterns in fixtures).
+
+**Tradeoffs discussed:**
+- Whether to extend impact deflation to "not_relevant" dismissals — decided no, keep it focused on "low_impact" since not_relevant is about specific proposals, not category quality. The LLM gate handles the not_relevant case.
+
+---
+
+### CI/CD setup — GitHub Actions + branch protection (P6)
+**Date:** 2026-04-04
+**Branch:** github-actions-ci
+**Commit:** 05b01df
+
+**What was done:**
+- Added `.github/workflows/test.yml` — runs pytest on Python 3.8 + 3.9 matrix on every push and PR.
+- Enabled branch protection on `main` — requires passing CI (both matrix jobs). No direct pushes. Admin enforcement off for emergency bypass.
+- Fixed time-rotting test: `generate_fixtures.py` used a hardcoded `_BASE_TIME` (2026-03-28) that caused the `test_correction_theme_detected` test to fail once timestamps aged past the 7-day recency window. Changed to relative timestamp (now - 2 days).
+
+**Why:**
+419 tests existed with no automated enforcement. Tests could break silently between PRs. Branch protection prevents accidental pushes.
+
+**Design decisions:**
+- Python 3.8 + 3.9 matrix only — 3.8 is the minimum supported version per project constraints, 3.9 catches any 3.9+ syntax that slipped in. No need for 3.10+ since we target stdlib-only compatibility.
+- CI-only gate, no required reviews — solo developer with AI agents. Review requirement was initially added but removed because GitHub doesn't allow self-approval, making it pure friction. Can re-add when team grows.
+- `strict: true` on status checks — branch must be up-to-date with main before merging, prevents "tests pass on stale branch" issues.
+- Admin enforcement off — allows emergency bypass without disabling the rule.
+
+**Technical decisions:**
+- `_BASE_TIME` fix uses `datetime.now(tz=timezone.utc) - timedelta(days=2)` — keeps all synthetic timestamps within the 7-day recency window regardless of when tests run. The 2-day offset ensures sessions span hours 0-14 without crossing into the future.
+
+**Tradeoffs discussed:**
+- Considered adding mypy to CI (mentioned in P3) — deferred since P3 hasn't started and adding mypy to a codebase without type annotations would just be noise.
+- Considered more Python versions in the matrix — diminishing returns for a stdlib-only project. 3.8 catches the floor, 3.9 catches one step up.
 
 ---
 
