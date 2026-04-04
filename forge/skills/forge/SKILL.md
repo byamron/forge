@@ -31,7 +31,7 @@ Save the `FORGE_ROOT=...` path. If unresolved, tell the user and stop.
 python3 "<FORGE_ROOT>/scripts/cache-manager.py" --proposals --plugin-root "<FORGE_ROOT>"
 ```
 
-Returns JSON with `proposals`, `context_health`, `conversation_pairs_sample`, and `deep_analysis_cache`.
+Returns JSON with `proposals`, `context_health`, `conversation_pairs_sample`, `deep_analysis_cache`, `previous_proposals`, and `feedback_signals`.
 
 ## Step 1b: Apply quality filter
 
@@ -42,9 +42,17 @@ Returns JSON with `proposals`, `context_health`, `conversation_pairs_sample`, an
    - Use its `filtered_proposals` as the proposal set, append `additional_proposals`. Sort by impact.
    - If the agent returns no results or fails, fall back to the raw script `proposals` from Step 1.
 
+After filtering, save the filtered proposal set for next-run comparison (so "what changed" reflects what the user actually reviewed, not unfiltered script output):
+
+```bash
+python3 "<FORGE_ROOT>/scripts/cache-manager.py" --save-last-run <<'FORGE_EOF'
+<FILTERED_PROPOSALS_ARRAY>
+FORGE_EOF
+```
+
 ## Step 2: Format and present results
 
-Pipe the proposals JSON through the formatter:
+Pipe the proposals JSON through the formatter. Include `previous_proposals` and `feedback_signals` from Step 1 output alongside the filtered proposals, `context_health`, `safety_gate`, and `deep_analysis_cache`:
 
 ```bash
 python3 "<FORGE_ROOT>/scripts/format-proposals.py" <<'FORGE_EOF'
@@ -52,7 +60,14 @@ python3 "<FORGE_ROOT>/scripts/format-proposals.py" <<'FORGE_EOF'
 FORGE_EOF
 ```
 
-The output is JSON with `health_table`, `proposal_table`, `proposal_count`, `has_deep_cache`, `proposals`, and `safety_flagged_ids`. Show the `health_table` first, then the `proposal_table`.
+The output is JSON with `health_table`, `proposal_table`, `proposal_count`, `has_deep_cache`, `proposals`, `safety_flagged_ids`, `changes_summary`, and `calibration_notes`.
+
+**Display order:**
+
+1. If `changes_summary` is non-empty, show it first (e.g., "2 new proposals, 1 removed since last review.").
+2. Show the `health_table`.
+3. If `calibration_notes` is non-empty, show each note as a bullet below the health table. These explain active feedback calibration (e.g., impact adjustments, safety gate, skip decay).
+4. Show the `proposal_table`.
 
 If `safety_flagged_ids` is non-empty, note to the user: "Proposals marked [Safety review] should include human approval steps -- previous similar proposals were modified or dismissed for missing safety gates."
 
@@ -64,6 +79,8 @@ Use a **single `AskUserQuestion` call** (up to 4 proposals per call) with option
 - **Modify** -- "I'll tell you what to change first"
 - **Skip** -- "Keep for next time"
 - **Never** -- "Dismiss permanently"
+
+For proposals with type `demotion` or `reference_doc`: include a 3-5 line preview of `suggested_content` from the proposal in the AskUserQuestion description, alongside the evidence. This helps the user judge structural changes. For other types (hook, rule, skill), show evidence only (current behavior).
 
 If more than 4 proposals, batch into multiple calls. If `AskUserQuestion` unavailable, ask conversationally.
 
