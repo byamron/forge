@@ -391,7 +391,7 @@ Change to: when `proactive_proposals` setting is true (default) and high-confide
 ---
 
 ### P2. Proposal presentation improvements
-**Status:** Not started
+**Status:** Complete (v0.3.8)
 **Priority:** HIGH — addresses "exaggerated impact" and trust problems.
 **Goal:** Proposals are self-justifying. Users see what changed and why.
 **Impacts:** UX, Accuracy

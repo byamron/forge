@@ -275,3 +275,156 @@ class TestMergeSettings:
             "merge-settings.py", json.dumps(hook),
             extra_args=["--settings-path", str(settings_path)])
         assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# format-proposals.py — P2 presentation improvements
+# ---------------------------------------------------------------------------
+
+class TestFormatProposalsP2:
+    """Tests for changes_summary, calibration_notes, and updated truncation."""
+
+    def test_changes_summary_new_proposals(self):
+        """New proposals since last run are reported."""
+        data = {
+            "proposals": [
+                {"id": "p1", "impact": "high", "type": "rule",
+                 "description": "X", "evidence_summary": "Y"},
+                {"id": "p2", "impact": "medium", "type": "hook",
+                 "description": "A", "evidence_summary": "B"},
+            ],
+            "context_health": {},
+            "previous_proposals": [
+                {"id": "p1", "impact": "high", "type": "rule"},
+            ],
+        }
+        rc, out, _ = run_script("format-proposals.py", json.dumps(data))
+        assert rc == 0
+        assert "1 new proposal" in out["changes_summary"]
+
+    def test_changes_summary_removed_and_impact_changed(self):
+        """Removed and impact-adjusted proposals are both reported."""
+        data = {
+            "proposals": [
+                {"id": "p1", "impact": "low", "type": "rule",
+                 "description": "X", "evidence_summary": "Y"},
+            ],
+            "context_health": {},
+            "previous_proposals": [
+                {"id": "p1", "impact": "high", "type": "rule"},
+                {"id": "p2", "impact": "medium", "type": "hook"},
+            ],
+        }
+        rc, out, _ = run_script("format-proposals.py", json.dumps(data))
+        assert rc == 0
+        summary = out["changes_summary"]
+        assert "1 removed" in summary
+        assert "1 impact-adjusted" in summary
+
+    def test_changes_summary_no_previous(self):
+        """No changes_summary when there is no previous run."""
+        data = {
+            "proposals": [
+                {"id": "p1", "impact": "high", "type": "rule",
+                 "description": "X", "evidence_summary": "Y"},
+            ],
+            "context_health": {},
+        }
+        rc, out, _ = run_script("format-proposals.py", json.dumps(data))
+        assert rc == 0
+        assert out["changes_summary"] == ""
+
+    def test_changes_summary_no_changes(self):
+        """Empty summary when proposals are identical to last run."""
+        prev = [{"id": "p1", "impact": "high", "type": "rule"}]
+        data = {
+            "proposals": [
+                {"id": "p1", "impact": "high", "type": "rule",
+                 "description": "X", "evidence_summary": "Y"},
+            ],
+            "context_health": {},
+            "previous_proposals": prev,
+        }
+        rc, out, _ = run_script("format-proposals.py", json.dumps(data))
+        assert rc == 0
+        assert out["changes_summary"] == ""
+
+    def test_truncation_80_desc_100_evidence(self):
+        """Description truncates at 80 chars, evidence at 100."""
+        long_desc = "D" * 90
+        long_evidence = "E" * 110
+        data = {
+            "proposals": [
+                {"id": "p1", "impact": "high", "type": "rule",
+                 "description": long_desc, "evidence_summary": long_evidence},
+            ],
+            "context_health": {},
+        }
+        rc, out, _ = run_script("format-proposals.py", json.dumps(data))
+        assert rc == 0
+        table = out["proposal_table"]
+        # 77 chars + "..." = 80
+        assert "D" * 77 + "..." in table
+        assert "D" * 78 not in table
+        # 97 chars + "..." = 100
+        assert "E" * 97 + "..." in table
+        assert "E" * 98 not in table
+
+    def test_calibration_notes_impact_deflation(self):
+        """Impact deflation note appears when dismissals outnumber approvals."""
+        data = {
+            "proposals": [],
+            "context_health": {},
+            "feedback_signals": {
+                "category_precision": {
+                    "hook": {"approved": 1, "dismissed": 5},
+                },
+                "safety_gate": {"triggered": False},
+                "skip_counts": {},
+            },
+        }
+        rc, out, _ = run_script("format-proposals.py", json.dumps(data))
+        assert rc == 0
+        notes = out["calibration_notes"]
+        assert len(notes) == 1
+        assert "Hook" in notes[0]
+        assert "5" in notes[0]
+
+    def test_calibration_notes_safety_gate(self):
+        """Safety gate note appears when triggered."""
+        data = {
+            "proposals": [],
+            "context_health": {},
+            "feedback_signals": {
+                "category_precision": {},
+                "safety_gate": {"triggered": True, "signal_count": 4},
+                "skip_counts": {},
+            },
+        }
+        rc, out, _ = run_script("format-proposals.py", json.dumps(data))
+        assert rc == 0
+        notes = out["calibration_notes"]
+        assert any("safety review" in n.lower() for n in notes)
+
+    def test_calibration_notes_skip_decay(self):
+        """Skip decay note appears when proposals hit 3 skips."""
+        data = {
+            "proposals": [],
+            "context_health": {},
+            "feedback_signals": {
+                "category_precision": {},
+                "safety_gate": {"triggered": False},
+                "skip_counts": {"p1": 3, "p2": 4, "p3": 1},
+            },
+        }
+        rc, out, _ = run_script("format-proposals.py", json.dumps(data))
+        assert rc == 0
+        notes = out["calibration_notes"]
+        assert any("2 proposals auto-dismissed" in n for n in notes)
+
+    def test_calibration_notes_absent_when_no_signals(self):
+        """No calibration notes when feedback signals are absent."""
+        data = {"proposals": [], "context_health": {}}
+        rc, out, _ = run_script("format-proposals.py", json.dumps(data))
+        assert rc == 0
+        assert out["calibration_notes"] == []

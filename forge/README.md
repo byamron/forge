@@ -1,6 +1,6 @@
 # Forge
 
-Infrastructure architect for Claude Code. Analyzes your sessions and configuration to generate optimized rules, skills, hooks, agents, and reference docs — then learns from your feedback to improve over time.
+Infrastructure architect for Claude Code. Forge watches your sessions, detects patterns in how you work, and proposes infrastructure improvements — rules, hooks, skills, agents — that make Claude Code work better for your specific project. It learns from your feedback, so proposals get sharper over time.
 
 ## Installation
 
@@ -17,61 +17,65 @@ claude --plugin-dir ./forge
 
 | Command | What it does |
 |---------|-------------|
-| `/forge` | Analyze your setup and walk through improvements |
-| `/forge:settings` | Configure how often Forge runs background analysis |
+| `/forge` | Review and apply infrastructure proposals |
+| `/forge:settings` | Configure nudge frequency |
 | `/forge:version` | Check installed version |
 
-## How it works
+## What happens when you use Forge
 
-Once installed, Forge runs automatically in the background. You don't need to do anything — it watches every session and builds up an understanding of your workflows.
+### Every session (automatic, invisible)
 
-### Background (every session, invisible)
+Forge runs four hooks — two at session start, two at session end. You never see them.
 
-**Session start:** If enough sessions have accumulated (configurable), Forge spawns background analysis — Python scripts detect patterns (zero tokens), then an LLM quality gate filters and enriches the results (~5K tokens). You don't wait for any of this. Forge also injects a system message into Claude's context about pending proposals — Claude may or may not mention it depending on conversational context.
+**Session start:**
+- Checks for pending proposals. If any exist and your nudge level allows it, injects a system message into Claude's context mentioning them.
+- Spawns background analysis if enough sessions have accumulated since the last run. Python scripts detect patterns at zero token cost, then an LLM quality gate filters and enriches the results (~5K tokens).
 
-**Session end:** Forge logs the session for future analysis. No output, no delay.
+**Session end:**
+- Logs the session for future analysis.
+- Updates analysis caches so the next `/forge` is instant.
 
 ### When you run `/forge`
 
-Results are instant — everything was pre-computed in the background. On first run for a new project, Forge analyzes synchronously (~30 seconds) with a progress message.
+Results are instant — everything was pre-computed in the background. On a new project where no background analysis has run yet, Forge analyzes synchronously (~30 seconds) with a progress message.
 
-1. **Health table** — CLAUDE.md size, rule count, hooks, agents, gaps, stale artifacts
-2. **Proposals** — ranked by impact, filtered by the LLM quality gate. Each shows type, evidence, and what it would generate.
-3. **Review** — for each proposal:
-   - **Approve** — generate and place the artifact
-   - **Modify** — tell Forge what to change first
-   - **Skip** — keep for next time
-   - **Never** — dismiss permanently (Forge asks why: low impact, missing safety, already handled, not relevant)
-4. **Generate** — approved artifacts are drafted, previewed, and placed after your explicit approval
+You see, in order:
 
-### How Forge learns
+1. **What changed** — if you've run `/forge` before, a summary of what's different: new proposals, removed proposals, impact adjustments. This tells you whether it's worth reviewing again or if nothing moved.
 
-Your decisions shape future proposals:
+2. **Health table** — CLAUDE.md line count, rules, hooks, agents, stale artifacts, demotion candidates, ineffective artifacts. Warnings flag gaps and budget pressure.
 
-| You do | Forge learns |
+3. **Calibration notes** — if your past feedback has activated any calibration mechanisms, Forge tells you. Examples:
+   - "Hook impact adjusted based on 5 previous low-impact dismissals."
+   - "Automation proposals flagged for safety review based on your feedback."
+   - "2 proposals auto-dismissed after being skipped 3 times."
+
+   These explain *why* the proposal set looks the way it does — not just what's in it.
+
+4. **Proposals** — ranked by impact (high first), filtered by the LLM quality gate. Each row shows impact level, type, a description, and evidence from your sessions.
+
+5. **Review** — for each proposal, you choose:
+   - **Approve** — Forge generates the artifact, previews it, and writes it after your explicit confirmation
+   - **Modify** — tell Forge what to change, then approve the revised version
+   - **Skip** — keep it for next time (auto-dismissed after 3 skips)
+   - **Never** — dismiss permanently. Forge asks why: low impact, missing safety steps, already handled, or not relevant. The reason feeds the calibration loop.
+
+   For structural proposals (demotions, reference doc extractions), the review includes a content preview — the first few lines of what would be generated — so you can judge the change before approving.
+
+6. **Generate** — approved artifacts are written to `.claude/`. Hooks are merged into `settings.json` non-destructively.
+
+### How Forge learns from you
+
+Every decision you make during review shapes future proposals:
+
+| What you do | What Forge does next time |
 |---|---|
-| Dismiss proposals for "low impact" | Future proposals of that type get deflated impact scores |
-| Dismiss for "missing safety" or add approval gates | Safety gate activates — future automation proposals flagged for human-in-the-loop review |
-| Skip a proposal 3 times | Auto-dismissed |
-| Approve a proposal | Tracks whether the pattern it addressed stops appearing (effectiveness) |
+| Dismiss proposals for "low impact" | Deflates impact scores for that proposal type — fewer low-value proposals surface |
+| Dismiss for "missing safety" or add approval gates when modifying | Activates the safety gate — future automation proposals (hooks, agents) are flagged for human-in-the-loop review |
+| Skip a proposal 3 times | Auto-dismisses it — you shouldn't have to keep saying "not now" |
+| Approve a proposal | Tracks whether the pattern it addressed stops appearing in subsequent sessions (effectiveness tracking) |
 
-Feedback is stored in `.claude/forge/` (git-tracked) — your teammates benefit from your calibration.
-
-### The pipeline
-
-```
-Session data (every session, automatic)
-    ↓
-Python scripts — detect patterns, config gaps, staleness (zero tokens)
-    ↓
-LLM quality gate — filter generic patterns, find contextual signals (~5K tokens, background)
-    ↓
-Cached proposals (instant on next /forge)
-    ↓
-User review — approve, modify, skip, or dismiss with reason
-    ↓
-Feedback loop — calibrates future proposals
-```
+This feedback is stored in `.claude/forge/` and git-tracked, so your teammates benefit from your calibration without running `/forge` themselves.
 
 ## What Forge generates
 
@@ -85,25 +89,44 @@ All artifacts are drafts you review before applying. Forge never writes files wi
 | Skill | `.claude/skills/<name>/SKILL.md` | Slash command for a repeated workflow |
 | Agent | `.claude/agents/<name>.md` | Subagent for a recurring multi-step task |
 | Reference doc | `.claude/references/<name>.md` | Verbose detail extracted from CLAUDE.md |
+| Demotion | Rule or reference doc + CLAUDE.md update | Move a 20-line section to a rule, leave a one-line pointer |
 
 ## Settings
 
 Configure via `/forge:settings`:
 
-| Level | Background analysis | Session-start behavior |
+| Level | Background analysis | Session-start nudge |
 |-------|--------------------|-----------------------|
 | `quiet` | Off — only analyzes when you run `/forge` | Silent |
-| `balanced` (default) | Runs after 5+ sessions accumulate | System message injected into Claude's context (Claude may or may not surface it) |
-| `eager` | Runs after 2+ sessions accumulate | Same, triggers sooner |
+| `balanced` (default) | After 5+ sessions accumulate | System message about pending proposals |
+| `eager` | After 2+ sessions accumulate | Same, triggers sooner |
 
-The system message tells Claude about pending proposals, but Claude decides whether to mention it based on context. To review proposals directly, run `/forge`.
+The session-start nudge is a system message injected into Claude's context. Claude may or may not surface it depending on conversational context. To review proposals directly, run `/forge`.
+
+## The pipeline
+
+```
+Sessions accumulate (automatic)
+    |
+Python scripts - config audit, transcript patterns, memory scan (zero tokens)
+    |
+LLM quality gate - filters generic patterns, finds contextual signals (~5K tokens)
+    |
+Cached proposals (instant on next /forge)
+    |
+User review - approve, modify, skip, or dismiss with reason
+    |
+Feedback loop - calibrates impact scores, activates safety gates, decays stale skips
+    |
+Next /forge run - sharper proposals, "what changed" summary, calibration notes
+```
 
 ## Data storage
 
 | Location | What | Shared? |
 |----------|------|---------|
 | `.claude/forge/` | Dismissed proposals, applied history, feedback signals | Yes (git-tracked, all contributors) |
-| `~/.claude/forge/projects/<hash>/` | Settings, cache, pending proposals, session log | No (personal, per-machine) |
+| `~/.claude/forge/projects/<hash>/` | Settings, analysis cache, pending proposals, session log | No (personal, per-machine) |
 | `.claude/` | Generated artifacts (rules, skills, hooks, agents) | Yes (git-tracked) |
 
 All analysis is scoped to the current project. No data leaves your machine. Forge never reads source code, API keys, `.env` files, or credentials.
