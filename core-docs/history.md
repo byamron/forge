@@ -37,6 +37,28 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Add confidence gate to proposal pipeline
+**Date:** 2026-04-05
+**Branch:** investigate-prompt-hooks
+
+**What was done:**
+Added a confidence gate in `build_proposals()` that filters out `confidence != "high"` proposals. Also upgraded rule-to-reference demotions from always-medium to always-high confidence (extracting a 120-line rule to a reference doc is a clear structural improvement).
+
+**Why:**
+Analysis of 60 real proposals across all projects showed medium-confidence proposals are 55% of output and almost entirely noise: 22 memory promotions (FB-0008: "#1 noise source") and 8 generic workflow agents (FB-0003: "#2 noise source"). The confidence field was set on every proposal but never used as a filter — it was purely decorative.
+
+**Design decisions:**
+- **Gate placement:** After impact filter, before dedup. Medium-confidence proposals never reach pending.json.
+- **Rule-to-reference upgraded to high:** A rule file that's 120+ lines clearly belongs as a reference doc. The previous `"medium"` was an artifact of the oversized-rule builder being conservative, not a quality signal.
+- **No setting to bypass:** Per FB-0006, quality improvements should be implicit, not optional.
+
+**Impact by the numbers:**
+- 33 of 60 real proposals (55%) would be filtered
+- Of those 33: 22 are memory promotions (all "Promote memory note to claude_md_entry: MEMORY"), 8 are generic workflow agents ("Create workflow-execute-read-write-ex agent"), 2 are short verbose demotions, 1 is a low-evidence skill
+- Zero high-quality proposals lost
+
+---
+
 ### Prompt hook investigation + concise systemMessage (P1 supplement)
 **Date:** 2026-04-05
 **Branch:** investigate-prompt-hooks

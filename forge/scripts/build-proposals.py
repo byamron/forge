@@ -827,7 +827,7 @@ def _build_from_demotions(config: Dict) -> List[Dict]:
             "id": f"demote-{filename}-rule-to-ref",
             "type": "demotion",
             "impact": "medium",
-            "confidence": "medium",
+            "confidence": "high",
             "description": (
                 f"Extract detail from {rule_path} ({line_count} lines) "
                 f"to .claude/references/{filename}.md"
@@ -1452,6 +1452,12 @@ def build_proposals(config: Dict, transcripts: Dict, memory: Dict,
 
     # Filter low impact
     filtered = [p for p in filtered if p.get("impact") != "low"]
+
+    # Filter low confidence — only surface proposals with strong evidence.
+    # Medium-confidence proposals are predominantly noise: memory promotions
+    # (FB-0008) and generic workflow agents (FB-0003) are always medium by
+    # construction and account for 90%+ of medium-confidence output.
+    filtered = [p for p in filtered if p.get("confidence") == "high"]
 
     # Skip decay: proposals skipped 3+ times across /forge runs auto-dismiss
     skip_counts = {}  # type: Dict[str, int]
