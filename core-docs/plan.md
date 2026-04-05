@@ -619,6 +619,36 @@ No new scripts needed — the SKILL.md can read `applied.json` directly and form
 
 ---
 
+### P8. Context-aware confidence scoring
+**Status:** Not started
+**Priority:** LOW — quality refinement. Current confidence gate works well but uses static thresholds.
+**Goal:** Confidence scores account for context pressure, so proposals that matter more under pressure get surfaced.
+**Impacts:** Accuracy
+
+**Background:**
+v0.4.2 added a confidence gate that filters `confidence != "high"`. This removed 55% of proposals — almost entirely noise (memory promotions, generic workflow agents). But the gate also filters proposals that *could* be valuable depending on context:
+
+- **Rule-to-reference demotions** are always `"medium"` confidence. A 120-line rule is clearly worth extracting when CLAUDE.md is at 450/500 lines, but not worth the churn at 80/200. The confidence should depend on context pressure.
+- **Verbose CLAUDE.md section demotions** (<8 lines) are `"medium"`. FB-0005 established that small demotions aren't worth it when CLAUDE.md has headroom, but should escalate when approaching budget.
+- **Skills from repeated prompts** need 6+ occurrences for high confidence. A skill with 4 occurrences might still be valuable if the project has very few sessions (4/5 = strong signal vs 4/50 = weak signal).
+
+**Key context for future implementation:**
+- Anthropic's official guidance: ~200 lines for CLAUDE.md (upper bound ~500). No specific limit for individual rule files. Forge's 50-100 line rule budget is our convention, not Anthropic's.
+- FB-0005: "Demotion impact should scale with context pressure." Currently partially addressed — impact scales with `over_budget` flag, but confidence does not.
+- The confidence gate is binary (high or filtered). A future version could use a scoring function that weighs evidence strength against context state (CLAUDE.md line count, total rules count, etc.) to produce a continuous score, then apply a threshold.
+- `analyze-config.py` already computes `context_budget` with line counts. This data is available to `build-proposals.py` but not currently used for confidence scoring.
+
+**Possible implementation:**
+1. Pass `context_budget` from config analysis into `build_proposals()`
+2. Add a `_score_confidence()` function that takes evidence + context state
+3. Demotion confidence scales with `budget_used / budget_target` ratio
+4. Skill/agent confidence scales with `occurrences / total_sessions` ratio
+5. Replace hardcoded `"high"/"medium"` assignments with `_score_confidence()` calls
+
+**Not in scope:** Changing the gate itself. The binary high/medium split works — the improvement is in how proposals earn "high" confidence.
+
+---
+
 ## Completed Work Items (archived)
 
 <details>
