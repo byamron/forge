@@ -37,6 +37,42 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Fix proposal presentation UX: individual cards, ASCII rendering, notification gating
+**Date:** 2026-04-05
+**Branch:** trio-terminal-feedback
+
+**What was done:**
+1. Replaced proposal summary table with individual proposal cards — each proposal gets its own structured block with origin, destination, impact justification, and preview.
+2. Replaced Unicode symbols (✓/⚠) with ASCII labels (OK/WARN) in the health table.
+3. Rewrote SKILL.md Step 2 to walk through proposals one at a time via AskUserQuestion, never batching.
+4. Gated session-start proposal notifications behind the deep analysis cache — proposals are only surfaced to users after passing the quality gate.
+5. Replaced "First-time setup" messaging with neutral status: "Analyzing session history — this will run in the background after future sessions."
+
+**Why:**
+Real-world terminal testing revealed multiple UX flaws (FB-0013, FB-0014, FB-0015):
+- Unicode symbols rendered as `:warning:` / `:white_check_mark:` text in Claude Code's terminal
+- The proposal table format (introduced in PR #6, never user-requested) stripped away origin and context, making proposals impossible to evaluate
+- AskUserQuestion batched proposals as "approve 1-3" with no per-proposal detail
+- Session-start hook promised "2 proposals ready" but `/forge` then triggered a 3-minute quality analysis, contradicting the notification
+
+**Design decisions:**
+- **Individual cards over summary table:** The table format was an implementation decision from PR #6, not a user design. Proposals need full context to evaluate — origin, destination, impact justification. Cards provide this; tables can't.
+- **ASCII-safe rendering:** OK/WARN are universally renderable. No Unicode, no emoji, no platform-dependent symbols.
+- **Notification gating on deep cache:** If the quality gate hasn't run, proposals haven't been vetted. Don't promise them. This prevents the "proposals ready" → "wait 3 minutes" contradiction.
+- **Neutral analysis messaging:** The deep cache being null isn't a "first time" signal — it can happen anytime (cache expiry, gap between sessions). The UX shouldn't have a concept of "first time" vs "returning." There's just "analysis is ready" or "analysis needs to run."
+- **First-run quality gate is non-negotiable:** Explicitly rejected the option to show raw script proposals to avoid the wait. Quality is prioritized over speed. Speed improvements must come from optimizing the LLM workflow, not bypassing it. (FB-0015)
+
+**Technical decisions:**
+- `format_proposal_cards()` returns a list of dicts (not pre-rendered markdown). The SKILL.md instructs the LLM how to present each card, keeping formatting flexible while data is structured.
+- `_extract_origin()` derives human-readable origin from proposal type and `demotion_detail` fields. No new data needed from the pipeline.
+- `check-pending.py` checks for `cache/deep-analysis.json` existence and staleness (24h) — same logic as cache-manager.py.
+
+**Tradeoffs discussed:**
+- Pre-rendered markdown cards (strings) vs structured data (dicts): chose structured data so the SKILL.md can adapt formatting without changing the script.
+- Whether to show proposals without the deep cache as "unvetted" with a warning vs not showing them at all: chose not showing. The quality gate exists for a reason; showing unvetted proposals undermines it.
+
+---
+
 ### Add confidence gate to proposal pipeline
 **Date:** 2026-04-05
 **Branch:** investigate-prompt-hooks

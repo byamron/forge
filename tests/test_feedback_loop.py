@@ -390,49 +390,49 @@ class TestSkipDecay:
 class TestSafetyGate:
     """Verify safety gate labels on automation proposals."""
 
-    def test_safety_label_on_hook_proposals(self):
+    def test_safety_flag_on_hook_proposals(self):
         proposals = [
             {"id": "h1", "type": "hook", "impact": "medium",
              "description": "Auto-lint", "evidence_summary": "5 times"},
         ]
         gate = {"triggered": True, "signal_count": 4, "threshold": 3}
-        table = fmt.format_proposal_table(proposals, safety_gate=gate)
-        assert "[Safety review]" in table
+        cards = fmt.format_proposal_cards(proposals, safety_gate=gate)
+        assert cards[0]["safety_flagged"] is True
 
-    def test_safety_label_on_agent_proposals(self):
+    def test_safety_flag_on_agent_proposals(self):
         proposals = [
             {"id": "a1", "type": "agent", "impact": "high",
              "description": "Deploy agent", "evidence_summary": "8 times"},
         ]
         gate = {"triggered": True, "signal_count": 3, "threshold": 3}
-        table = fmt.format_proposal_table(proposals, safety_gate=gate)
-        assert "[Safety review]" in table
+        cards = fmt.format_proposal_cards(proposals, safety_gate=gate)
+        assert cards[0]["safety_flagged"] is True
 
-    def test_no_safety_label_on_rules(self):
+    def test_no_safety_flag_on_rules(self):
         proposals = [
             {"id": "r1", "type": "rule", "impact": "medium",
              "description": "Add vitest rule", "evidence_summary": "3 times"},
         ]
         gate = {"triggered": True, "signal_count": 5, "threshold": 3}
-        table = fmt.format_proposal_table(proposals, safety_gate=gate)
-        assert "[Safety review]" not in table
+        cards = fmt.format_proposal_cards(proposals, safety_gate=gate)
+        assert cards[0]["safety_flagged"] is False
 
-    def test_no_label_when_gate_not_triggered(self):
+    def test_no_flag_when_gate_not_triggered(self):
         proposals = [
             {"id": "h1", "type": "hook", "impact": "medium",
              "description": "Auto-lint", "evidence_summary": "5 times"},
         ]
         gate = {"triggered": False, "signal_count": 1, "threshold": 3}
-        table = fmt.format_proposal_table(proposals, safety_gate=gate)
-        assert "[Safety review]" not in table
+        cards = fmt.format_proposal_cards(proposals, safety_gate=gate)
+        assert cards[0]["safety_flagged"] is False
 
-    def test_no_label_when_no_gate(self):
+    def test_no_flag_when_no_gate(self):
         proposals = [
             {"id": "h1", "type": "hook", "impact": "medium",
              "description": "Auto-lint", "evidence_summary": "5 times"},
         ]
-        table = fmt.format_proposal_table(proposals)
-        assert "[Safety review]" not in table
+        cards = fmt.format_proposal_cards(proposals)
+        assert cards[0]["safety_flagged"] is False
 
 
 # ---------------------------------------------------------------------------

@@ -143,13 +143,30 @@ class TestMain:
     """Integration tests that exercise main() output for each notification state."""
 
     def _run_main(self, tmp_path, proposals=None, settings=None,
-                  unanalyzed_count=0, session_log_count=0):
-        """Set up state and capture main() stdout."""
+                  unanalyzed_count=0, session_log_count=0,
+                  deep_cache=True):
+        """Set up state and capture main() stdout.
+
+        deep_cache: if True (default) and proposals are provided, creates a
+        valid deep analysis cache so check-pending treats proposals as
+        quality-checked.  Set to False to test behavior without the cache.
+        """
+        import time as _time
         user_data = tmp_path / "user-data"
         user_data.mkdir(exist_ok=True)
 
         if proposals is not None:
             _write_json(user_data / "proposals" / "pending.json", proposals)
+            if deep_cache and proposals:
+                cache_dir = user_data / "cache"
+                cache_dir.mkdir(exist_ok=True)
+                _write_json(cache_dir / "deep-analysis.json", {
+                    "filtered_proposals": [],
+                    "additional_proposals": [],
+                    "removed_count": 0,
+                    "removal_reasons": [],
+                    "timestamp": _time.time(),
+                })
 
         if settings is not None:
             _write_json(user_data / "settings.json", settings)
@@ -259,6 +276,27 @@ class TestMain:
             settings={"nudge_level": "quiet"},
         )
         assert result["systemMessage"] == "Forge has 1 proposal. Run `/forge` to review."
+
+    # --- Deep cache gating ---
+
+    def test_no_proposals_without_deep_cache(self, tmp_path):
+        """Proposals are not surfaced if the quality gate hasn't run."""
+        result = self._run_main(
+            tmp_path,
+            proposals=[_make_proposal()],
+            deep_cache=False,
+        )
+        assert result is None
+
+    def test_no_proposals_without_deep_cache_falls_through(self, tmp_path):
+        """Without deep cache, falls through to health signal if sessions exist."""
+        result = self._run_main(
+            tmp_path,
+            proposals=[_make_proposal()],
+            session_log_count=10,
+            deep_cache=False,
+        )
+        assert "tracking 10 sessions" in result["systemMessage"]
 
     # --- Proposals take priority over health ---
 

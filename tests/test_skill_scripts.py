@@ -46,9 +46,9 @@ class TestFormatProposals:
         assert rc == 0
         assert "87" in out["health_table"]
         assert out["proposal_count"] == 0
-        assert out["proposal_table"] == ""
+        assert out["proposal_cards"] == []
 
-    def test_proposal_table(self):
+    def test_proposal_cards(self):
         data = {
             "proposals": [
                 {"id": "p1", "impact": "high", "type": "hook",
@@ -61,8 +61,15 @@ class TestFormatProposals:
         rc, out, _ = run_script("format-proposals.py", json.dumps(data))
         assert rc == 0
         assert out["proposal_count"] == 2
-        assert "Auto-lint" in out["proposal_table"]
-        assert "Use vitest" in out["proposal_table"]
+        cards = out["proposal_cards"]
+        assert len(cards) == 2
+        assert cards[0]["description"] == "Auto-lint"
+        assert cards[0]["type"] == "hook"
+        assert cards[0]["impact"] == "High"
+        assert cards[0]["origin"] == "config audit"
+        assert cards[1]["description"] == "Use vitest"
+        assert cards[1]["type"] == "rule"
+        assert cards[1]["origin"] == "correction patterns in session history"
 
     def test_over_budget_warning(self):
         data = {
@@ -71,7 +78,7 @@ class TestFormatProposals:
         }
         rc, out, _ = run_script("format-proposals.py", json.dumps(data))
         assert rc == 0
-        assert "\u26a0" in out["health_table"]
+        assert "WARN" in out["health_table"]
 
     def test_stale_artifacts_warning(self):
         data = {
@@ -80,7 +87,7 @@ class TestFormatProposals:
         }
         rc, out, _ = run_script("format-proposals.py", json.dumps(data))
         assert rc == 0
-        assert "\u26a0" in out["health_table"]
+        assert "WARN" in out["health_table"]
 
     def test_ineffective_artifacts(self):
         data = {
@@ -349,8 +356,8 @@ class TestFormatProposalsP2:
         assert rc == 0
         assert out["changes_summary"] == ""
 
-    def test_truncation_80_desc_100_evidence(self):
-        """Description truncates at 80 chars, evidence at 100."""
+    def test_cards_preserve_full_description(self):
+        """Cards pass through full description and evidence without truncation."""
         long_desc = "D" * 90
         long_evidence = "E" * 110
         data = {
@@ -362,13 +369,9 @@ class TestFormatProposalsP2:
         }
         rc, out, _ = run_script("format-proposals.py", json.dumps(data))
         assert rc == 0
-        table = out["proposal_table"]
-        # 77 chars + "..." = 80
-        assert "D" * 77 + "..." in table
-        assert "D" * 78 not in table
-        # 97 chars + "..." = 100
-        assert "E" * 97 + "..." in table
-        assert "E" * 98 not in table
+        card = out["proposal_cards"][0]
+        assert card["description"] == long_desc
+        assert card["reason"] == long_evidence
 
     def test_calibration_notes_impact_deflation(self):
         """Impact deflation note appears when dismissals outnumber approvals."""
