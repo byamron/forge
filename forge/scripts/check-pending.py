@@ -89,6 +89,20 @@ def count_total_sessions(user_data_dir: Path) -> int:
     return max(logged, unanalyzed)
 
 
+def has_deep_analysis_cache(user_data_dir: Path) -> bool:
+    """Check if the deep analysis cache exists and is not stale."""
+    deep_path = user_data_dir / "cache" / "deep-analysis.json"
+    if not deep_path.is_file():
+        return False
+    try:
+        import time
+        data = json.loads(deep_path.read_text(encoding="utf-8"))
+        ts = data.get("timestamp", 0)
+        return time.time() - ts <= 86400  # 24 hours
+    except (OSError, json.JSONDecodeError):
+        return False
+
+
 def load_pending_proposals(project_root: Path) -> List[Dict]:
     """Load all pending proposals from the cache."""
     pending_path = resolve_user_file(project_root, "proposals/pending.json")
@@ -125,8 +139,10 @@ def main():
     message = None  # type: Optional[str]
 
     # --- Priority 1: Pending proposals ---
-    # Show proposal count when proposals exist and proactive is enabled.
-    if proactive_enabled:
+    # Only show proposal count when the quality gate has run (deep analysis
+    # cache exists). Without it, proposals haven't been quality-checked yet
+    # and shouldn't be promised to the user.
+    if proactive_enabled and has_deep_analysis_cache(user_data_dir):
         pending_count = len(load_pending_proposals(root))
         if pending_count > 0:
             if pending_count == 1:

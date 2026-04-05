@@ -153,4 +153,34 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 **Applies to:** all test writing, test review, PR readiness checks
 
+### FB-0013: Proposal presentation must not use tables — walk through individually
+**Date:** 2026-04-05
+**Source:** user correction
+
+**What was said:** The proposal table format (numbered rows with truncated columns) was never requested. Proposals were shown in a summary table with no explanation of origin or justification, then AskUserQuestion batched multiple proposals into a single "approve 1-3" prompt with no per-proposal information. The user expected individual proposal walkthrough with clear origin, impact justification, and preview — the format specified in the design, not a summary table.
+
+**Synthesized rule:** Never present proposals as a summary table. Each proposal must be presented individually with: (1) what it is, (2) where the content comes from (origin), (3) where it would go (destination), (4) why it matters (impact justification), (5) a preview of the content for structural changes. AskUserQuestion can include multiple proposals as separate questions in one call, but each must have full context — never batch them as "approve proposals 1-3" with no detail.
+
+**Applies to:** format-proposals.py, SKILL.md Step 2, any future presentation changes
+
+### FB-0014: No emojis or Unicode symbols — ASCII-safe rendering only
+**Date:** 2026-04-05
+**Source:** user correction
+
+**What was said:** The health table uses Unicode symbols (✓/⚠) that render as `:white_check_mark:` and `:warning:` text in Claude Code's terminal. The user wants a rendering strategy that works 100% of the time.
+
+**Synthesized rule:** Never use emoji or Unicode symbols in any output Forge generates. Use ASCII-safe alternatives (e.g., "OK", "WARN") that render correctly in every terminal, renderer, and context.
+
+**Applies to:** format-proposals.py health table, all user-facing output
+
+### FB-0015: First-run quality gate is non-negotiable
+**Date:** 2026-04-05
+**Source:** user direction
+
+**What was said:** When asked whether to skip the synchronous LLM quality gate on first run to reduce the 3-minute wait, user rejected this. Quality is prioritized over speed. The first-run messaging was already designed intentionally. Speed improvements must come from optimizing the LLM workflow itself, not from showing unfiltered proposals.
+
+**Synthesized rule:** Never propose skipping the session-analyzer quality gate to save time. The first-run synchronous analysis and its messaging are intentional design decisions. Speed improvements must optimize the analysis pipeline, not bypass it. This decision should be codified so it doesn't come up again.
+
+**Applies to:** SKILL.md Step 1b, any future performance optimization proposals
+
 <!-- Add new entries below this line, newest first. -->

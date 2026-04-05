@@ -645,7 +645,7 @@ class TestPipelineToPresentation:
         out = json.loads(proc.stdout)
         assert out["proposal_count"] > 0
         assert "CLAUDE.md" in out["health_table"]
-        assert "|" in out["proposal_table"]
+        assert len(out["proposal_cards"]) > 0
 
     def test_format_proposals_on_rust_minimal(self, rust_minimal_project):
         """Rust-minimal has only demotion proposals — verify formatting."""

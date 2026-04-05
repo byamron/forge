@@ -36,8 +36,8 @@ Returns JSON with `proposals`, `context_health`, `conversation_pairs_sample`, `d
 ## Step 1b: Apply quality filter
 
 1. If `deep_analysis_cache` is not null: use its `filtered_proposals` as the proposal set (these are the script proposals that passed the LLM quality gate). Append `additional_proposals` after them. Sort by impact (high first). This replaces the raw script proposals entirely. If `filtered_proposals` is empty but `additional_proposals` has items, use `additional_proposals` alone — the LLM filtered out all script proposals but found its own patterns.
-2. If `deep_analysis_cache` is null: the quality filter hasn't run yet (first time on this project, or background analysis is still in progress). **Run it now synchronously:**
-   - Tell the user: "First-time setup — Forge is analyzing your session history. This may take a few minutes the first time, but will run instantly on future sessions."
+2. If `deep_analysis_cache` is null: the quality filter needs to run. **Run it now synchronously:**
+   - Tell the user: "Analyzing session history — this will run in the background after future sessions."
    - Spawn the `session-analyzer` agent (subagent_type: `session-analyzer`) with: the `proposals` array from Step 1, the `context_health`, and the `conversation_pairs_sample`. Wait for it to complete.
    - Use its `filtered_proposals` as the proposal set, append `additional_proposals`. Sort by impact.
    - If the agent returns no results or fails, fall back to the raw script `proposals` from Step 1.
@@ -60,31 +60,39 @@ python3 "<FORGE_ROOT>/scripts/format-proposals.py" <<'FORGE_EOF'
 FORGE_EOF
 ```
 
-The output is JSON with `health_table`, `proposal_table`, `proposal_count`, `has_deep_cache`, `proposals`, `safety_flagged_ids`, `changes_summary`, and `calibration_notes`.
+The output is JSON with `health_table`, `proposal_cards`, `proposal_count`, `has_deep_cache`, `proposals`, `safety_flagged_ids`, `changes_summary`, and `calibration_notes`.
 
-**Display order:**
+### 2a. Show context overview
 
 1. If `changes_summary` is non-empty, show it first (e.g., "2 new proposals, 1 removed since last review.").
 2. Show the `health_table`.
-3. If `calibration_notes` is non-empty, show each note as a bullet below the health table. These explain active feedback calibration (e.g., impact adjustments, safety gate, skip decay).
-4. Show the `proposal_table`.
+3. If `calibration_notes` is non-empty, show each note as a bullet below the health table.
 
-If `safety_flagged_ids` is non-empty, note to the user: "Proposals marked [Safety review] should include human approval steps -- previous similar proposals were modified or dismissed for missing safety gates."
+If `proposal_count` is 0, say setup looks good and stop.
 
-If `proposal_count` is 0:
-- Say setup looks good and stop.
+### 2b. Walk through proposals individually
 
-Use a **single `AskUserQuestion` call** (up to 4 proposals per call) with options:
+Present each proposal from `proposal_cards` one at a time using `AskUserQuestion`. For each card, show:
+
+1. **Title line:** "Proposal N/total: [description]"
+2. **Type and impact:** "[type] -- [impact]"
+3. **From:** the `origin` field -- where the content currently lives
+4. **To:** the `destination` field -- where it would go
+5. **Why:** the `reason` field -- evidence justifying this change
+6. If `preview` is non-empty, show it in a code block (first 5 lines of the proposed content)
+7. If `safety_flagged` is true, add: "[Safety review] This proposal will include human approval steps."
+
+Then ask the user with these options:
 - **Approve** -- "Generate and place the artifact now"
 - **Modify** -- "I'll tell you what to change first"
 - **Skip** -- "Keep for next time"
 - **Never** -- "Dismiss permanently"
 
-For proposals with type `demotion` or `reference_doc`: include a 3-5 line preview of `suggested_content` from the proposal in the AskUserQuestion description, alongside the evidence. This helps the user judge structural changes. For other types (hook, rule, skill), show evidence only (current behavior).
+Each proposal gets its own question with its own context. Never batch multiple proposals into a single approval prompt without showing each one's details. Multiple proposals may be included as separate questions within one `AskUserQuestion` call, but each must have its full card displayed as the question text.
 
-If more than 4 proposals, batch into multiple calls. If `AskUserQuestion` unavailable, ask conversationally.
+If `AskUserQuestion` is unavailable, present each card conversationally and ask for the user's choice.
 
-### Feedback capture
+### 2c. Feedback capture
 
 **On Never:** Follow up with a single AskUserQuestion: "What's the main reason?" with options: "Low impact", "Missing safety steps", "Already handled", "Not relevant". Map the choice to the outcome's `reason` field:
 
