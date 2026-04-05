@@ -23,23 +23,12 @@ claude --plugin-dir ./forge
 
 ## What to expect
 
-Forge communicates through **system messages** — context injected at session start that Claude can reference in conversation. Claude may mention them naturally or not, depending on context. Running `/forge` is always the guaranteed way to see everything.
+At **session start**, you'll see a one-line notification in the terminal:
 
-### Between `/forge` runs
+- `Forge has 3 proposals. Run /forge to review.` — when proposals are ready
+- `Forge: tracking 23 sessions for this project.` — when Forge is active but no proposals yet
 
-Forge runs four hooks every session automatically. You never wait for them.
-
-At **session start**, Forge decides what to tell you based on what it knows. In priority order:
-
-1. **Proactive proposals** — when a pattern is strong enough (high confidence, high impact or 5+ occurrences), Forge surfaces it directly: "Add rule: always use vitest, not jest — corrected 8 times across 6 sessions." This gives you enough context to decide without running `/forge`.
-
-2. **Nudge** — when proposals are pending or enough sessions have accumulated since last analysis: "Forge: 3 pending proposals to review. Run `/forge` to review."
-
-3. **Effectiveness alert** — if an applied artifact isn't working (the pattern it addressed keeps appearing): "'Use vitest' may not be working — the triggering pattern is still present." Always shown regardless of settings.
-
-4. **Health signal** — when nothing else to report: "Forge: tracking 23 sessions for this project. All 5 applied artifacts effective."
-
-At **session end**, Forge logs the session and updates analysis caches.
+At **session end**, Forge logs the session and updates analysis caches. All of this is automatic — you never wait for it.
 
 ### When you run `/forge`
 
@@ -86,10 +75,8 @@ Configure via `/forge:settings`:
 
 | Setting | Options | Default | What it controls |
 |---------|---------|---------|-----------------|
-| Nudge level | `quiet` / `balanced` / `eager` | `balanced` | How aggressively Forge nudges about unanalyzed sessions |
-| Proactive proposals | `on` / `off` | `on` | Surface high-confidence proposals at session start |
-
-Proactive proposals and effectiveness alerts are independent of nudge level — they fire whenever Forge has something worth showing. Setting nudge to `quiet` suppresses session-count nudges and the health signal, but not actionable information.
+| Nudge level | `quiet` / `balanced` / `eager` | `balanced` | `quiet` suppresses the session-tracking notification |
+| Proactive proposals | `on` / `off` | `on` | Show proposal count at session start |
 
 ## How it works
 
@@ -98,11 +85,13 @@ Sessions accumulate (automatic)
     |
 Python scripts — config audit, transcript patterns, memory scan (zero tokens)
     |
+Confidence gate — only high-confidence proposals survive (strong evidence required)
+    |
 LLM quality gate — filters generic patterns, finds contextual signals (~5K tokens)
     |
 Cached proposals
     |
-Session start — proactive surfacing of high-confidence proposals
+Session start — terminal notification with proposal count
     |
 /forge — full review: approve, modify, skip, or dismiss with reason
     |

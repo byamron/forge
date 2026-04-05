@@ -827,7 +827,7 @@ def _build_from_demotions(config: Dict) -> List[Dict]:
             "id": f"demote-{filename}-rule-to-ref",
             "type": "demotion",
             "impact": "medium",
-            "confidence": "high",
+            "confidence": "medium",
             "description": (
                 f"Extract detail from {rule_path} ({line_count} lines) "
                 f"to .claude/references/{filename}.md"

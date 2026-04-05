@@ -49,12 +49,12 @@ Analysis of 60 real proposals across all projects showed medium-confidence propo
 
 **Design decisions:**
 - **Gate placement:** After impact filter, before dedup. Medium-confidence proposals never reach pending.json.
-- **Rule-to-reference upgraded to high:** A rule file that's 120+ lines clearly belongs as a reference doc. The previous `"medium"` was an artifact of the oversized-rule builder being conservative, not a quality signal.
+- **Rule-to-reference stays medium:** Initially upgraded to high, then reverted. Anthropic's official docs specify ~200 lines for CLAUDE.md but no specific limit for rule files. Whether to extract a rule to a reference doc depends on context pressure (how full is CLAUDE.md?), not rule size alone. This aligns with FB-0005 ("demotion impact should scale with context pressure"). Rule-to-reference demotions are correctly filtered until a context-aware confidence calculation is implemented.
 - **No setting to bypass:** Per FB-0006, quality improvements should be implicit, not optional.
 
 **Impact by the numbers:**
-- 33 of 60 real proposals (55%) would be filtered
-- Of those 33: 22 are memory promotions (all "Promote memory note to claude_md_entry: MEMORY"), 8 are generic workflow agents ("Create workflow-execute-read-write-ex agent"), 2 are short verbose demotions, 1 is a low-evidence skill
+- 33 of 60 real proposals (55%) filtered
+- Of those 33: 22 memory promotions (all "Promote memory note to claude_md_entry: MEMORY"), 8 generic workflow agents ("Create workflow-execute-read-write-ex agent"), 2 short verbose demotions, 1 low-evidence skill
 - Zero high-quality proposals lost
 
 ---

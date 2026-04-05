@@ -166,7 +166,9 @@ class TestDemotionProposals:
         assert demotions[0]["demotion_detail"]["action"] == "claude_md_to_rule"
         assert len(demotions[0]["demotion_detail"]["entries"]) == 2
 
-    def test_rule_to_reference_proposal_generated(self):
+    def test_rule_to_reference_filtered_by_confidence(self):
+        """Rule-to-reference demotions are medium confidence and filtered out.
+        Whether to extract depends on context pressure, not rule size alone."""
         config = self._config_with_demotions(rule_to_reference=[{
             "path": ".claude/rules/python.md",
             "filename": "python",
@@ -174,9 +176,7 @@ class TestDemotionProposals:
         }])
         result = bp.build_proposals(config, {}, {}, [], [])
         demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
-        assert len(demotions) == 1
-        assert demotions[0]["id"] == "demote-python-rule-to-ref"
-        assert demotions[0]["demotion_detail"]["action"] == "rule_to_reference"
+        assert len(demotions) == 0
 
     def test_over_budget_boosts_impact_to_high(self):
         config = self._config_with_demotions(
