@@ -166,7 +166,9 @@ class TestDemotionProposals:
         assert demotions[0]["demotion_detail"]["action"] == "claude_md_to_rule"
         assert len(demotions[0]["demotion_detail"]["entries"]) == 2
 
-    def test_rule_to_reference_proposal_generated(self):
+    def test_rule_to_reference_filtered_by_confidence(self):
+        """Rule-to-reference demotions are medium confidence and filtered out.
+        Whether to extract depends on context pressure, not rule size alone."""
         config = self._config_with_demotions(rule_to_reference=[{
             "path": ".claude/rules/python.md",
             "filename": "python",
@@ -174,9 +176,7 @@ class TestDemotionProposals:
         }])
         result = bp.build_proposals(config, {}, {}, [], [])
         demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
-        assert len(demotions) == 1
-        assert demotions[0]["id"] == "demote-python-rule-to-ref"
-        assert demotions[0]["demotion_detail"]["action"] == "rule_to_reference"
+        assert len(demotions) == 0
 
     def test_over_budget_boosts_impact_to_high(self):
         config = self._config_with_demotions(
@@ -307,7 +307,8 @@ class TestDemotionProposals:
         demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
         assert demotions[0]["confidence"] == "high"
 
-    def test_verbose_medium_confidence_when_under_8_lines(self):
+    def test_verbose_under_8_lines_filtered_by_confidence(self):
+        """Short verbose sections get medium confidence and are filtered out."""
         config = self._config_with_demotions(
             claude_md_verbose_to_reference=[{
                 "heading": "Small Section",
@@ -320,37 +321,24 @@ class TestDemotionProposals:
         )
         result = bp.build_proposals(config, {}, {}, [], [])
         demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
-        assert demotions[0]["confidence"] == "medium"
+        assert len(demotions) == 0
 
-    def test_verbose_over_budget_boosts_impact(self):
-        config = self._config_with_demotions(
-            claude_md_verbose_to_reference=[{
-                "heading": "Detail",
-                "name": "detail",
-                "line_start": 1,
-                "line_end": 10,
-                "line_count": 6,
-                "content": "...",
-            }],
-            over_budget=True,
-        )
-        result = bp.build_proposals(config, {}, {}, [], [])
-        demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
-        assert demotions[0]["impact"] == "high"
-
-    def test_verbose_pointer_in_demotion_detail(self):
+    def test_verbose_8_plus_lines_survives_confidence_gate(self):
+        """Verbose sections with 8+ lines get high confidence and pass."""
         config = self._config_with_demotions(
             claude_md_verbose_to_reference=[{
                 "heading": "Deploy Process",
                 "name": "deploy-process",
                 "line_start": 5,
-                "line_end": 15,
-                "line_count": 7,
+                "line_end": 20,
+                "line_count": 12,
                 "content": "...",
             }]
         )
         result = bp.build_proposals(config, {}, {}, [], [])
         demotions = [p for p in result["proposals"] if p["type"] == "demotion"]
+        assert len(demotions) == 1
+        assert demotions[0]["confidence"] == "high"
         pointer = demotions[0]["demotion_detail"]["pointer"]
         assert ".claude/references/deploy-process.md" in pointer
 
@@ -423,7 +411,7 @@ class TestDemotionImpactScoring:
 class TestAgentGeneration:
     """Verify agent proposals are built from workflow patterns."""
 
-    def _make_transcripts(self, pattern, phase_sequence, occurrences=6,
+    def _make_transcripts(self, pattern, phase_sequence, occurrences=8,
                           sessions=None):
         if sessions is None:
             sessions = ["s1", "s2", "s3"]

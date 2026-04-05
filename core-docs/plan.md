@@ -306,16 +306,16 @@ Ran the full pipeline on all 5 synthetic test profiles (controlled signals, no s
 ---
 
 ### P1. Ambient presence and proactive surfacing
-**Status:** Complete (v0.4.0)
+**Status:** Complete (v0.4.0). Directive-style systemMessage added in v0.4.1 to improve delivery reliability.
 **Priority:** HIGH — Forge runs 4 hooks every session but users can't tell. Without this, `/forge` feels manual.
 **Goal:** High-confidence proposals surface at session start without running `/forge`. Users always know Forge is watching.
 **Impacts:** UX
 
-**Open design questions (must resolve before implementing):**
-1. **What is the right trigger?** Session count is arbitrary. Proposals ready is the real signal. Should background analysis just always run (every SessionStart) and surface results when they exist?
-2. **How do we guarantee visibility?** `systemMessage` is unreliable — Claude decides whether to mention it. Options: (a) use a `prompt`-type hook that forces Claude to respond, (b) output directly to user via hook stdout, (c) accept the unreliability and make `/forge` the guaranteed path. Need to research what hook types guarantee user visibility.
-3. **Does the nudge setting still make sense?** If analysis always runs and proposals always surface when ready, the only toggle is "show me proposals at session start: yes/no." Three levels (quiet/balanced/eager) may be unnecessary complexity. Consider collapsing to a single boolean: `proactive_proposals: true/false`.
-4. **What does "quiet" actually mean?** If a user picks quiet, should background analysis still run (proposals ready when they run `/forge`) or should nothing happen at all? The former is more useful; the latter is what the current code does.
+**Design questions (resolved):**
+1. **What is the right trigger?** Proposals ready is the signal. Background analysis runs every SessionStart; proposals surface when they exist.
+2. **How do we guarantee visibility?** Resolved (2026-04-05). The `systemMessage` from SessionStart hooks is displayed directly in the Claude Code terminal UI as a startup notification — the user always sees it. The concern was about Claude not *mentioning* it in conversation, but that's irrelevant since the terminal notification is the guaranteed channel. Simplified the message to a concise notification: `"Forge has 3 proposals. Run /forge to review."` Stop hook and directive approaches were prototyped and rejected — see history.md.
+3. **Does the nudge setting still make sense?** Collapsed to `proactive_proposals: true/false`.
+4. **What does "quiet" actually mean?** Background analysis always runs. Quiet suppresses the ambient health signal but not proactive proposals or effectiveness alerts.
 
 **Implementation plan:**
 
@@ -387,6 +387,17 @@ Change to: when `proactive_proposals` setting is true (default) and high-confide
 - Health signal only when sessions > 0
 
 **Acceptance criteria:** Session start shows a meaningful Forge message that reflects actual system state. High-confidence proposals can be approved without `/forge`.
+
+#### Step 6: Concise terminal notification for proposals (v0.4.1)
+
+**Investigation (2026-04-05):** Researched Claude Code hook types. Key discovery: `systemMessage` from SessionStart hooks is displayed directly in the Claude Code terminal UI as a startup notification line — the user sees it without Claude needing to relay anything. This is already a guaranteed visibility channel. Stop hook (`decision: "block"`) and directive-style systemMessage were both prototyped and rejected — see history.md for details.
+
+**File:** `forge/scripts/check-pending.py`
+**Changes:**
+- Simplified `_format_proactive_message()` to a concise terminal notification
+- Before: multi-line message with proposal descriptions, evidence, occurrence counts (verbose, intended for Claude to relay in conversation)
+- After: `"Forge has 3 proposals. Run /forge to review."` (clean, reads well in the terminal notification line)
+- Proactive selection gate (`_select_proactive_proposals`) unchanged — notification only fires when high-confidence proposals exist
 
 ---
 
@@ -605,6 +616,36 @@ No new scripts needed — the SKILL.md can read `applied.json` directly and form
 **Files changed:** Bug fixes only — no planned structural changes.
 
 **Acceptance criteria:** `/forge` shows LLM-filtered proposals when deep cache exists. Generic workflow proposals are filtered out.
+
+---
+
+### P8. Context-aware confidence scoring
+**Status:** Not started
+**Priority:** LOW — quality refinement. Current confidence gate works well but uses static thresholds.
+**Goal:** Confidence scores account for context pressure, so proposals that matter more under pressure get surfaced.
+**Impacts:** Accuracy
+
+**Background:**
+v0.4.2 added a confidence gate that filters `confidence != "high"`. This removed 55% of proposals — almost entirely noise (memory promotions, generic workflow agents). But the gate also filters proposals that *could* be valuable depending on context:
+
+- **Rule-to-reference demotions** are always `"medium"` confidence. A 120-line rule is clearly worth extracting when CLAUDE.md is at 450/500 lines, but not worth the churn at 80/200. The confidence should depend on context pressure.
+- **Verbose CLAUDE.md section demotions** (<8 lines) are `"medium"`. FB-0005 established that small demotions aren't worth it when CLAUDE.md has headroom, but should escalate when approaching budget.
+- **Skills from repeated prompts** need 6+ occurrences for high confidence. A skill with 4 occurrences might still be valuable if the project has very few sessions (4/5 = strong signal vs 4/50 = weak signal).
+
+**Key context for future implementation:**
+- Anthropic's official guidance: ~200 lines for CLAUDE.md (upper bound ~500). No specific limit for individual rule files. Forge's 50-100 line rule budget is our convention, not Anthropic's.
+- FB-0005: "Demotion impact should scale with context pressure." Currently partially addressed — impact scales with `over_budget` flag, but confidence does not.
+- The confidence gate is binary (high or filtered). A future version could use a scoring function that weighs evidence strength against context state (CLAUDE.md line count, total rules count, etc.) to produce a continuous score, then apply a threshold.
+- `analyze-config.py` already computes `context_budget` with line counts. This data is available to `build-proposals.py` but not currently used for confidence scoring.
+
+**Possible implementation:**
+1. Pass `context_budget` from config analysis into `build_proposals()`
+2. Add a `_score_confidence()` function that takes evidence + context state
+3. Demotion confidence scales with `budget_used / budget_target` ratio
+4. Skill/agent confidence scales with `occurrences / total_sessions` ratio
+5. Replace hardcoded `"high"/"medium"` assignments with `_score_confidence()` calls
+
+**Not in scope:** Changing the gate itself. The binary high/medium split works — the improvement is in how proposals earn "high" confidence.
 
 ---
 
