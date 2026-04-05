@@ -306,7 +306,7 @@ Ran the full pipeline on all 5 synthetic test profiles (controlled signals, no s
 ---
 
 ### P1. Ambient presence and proactive surfacing
-**Status:** Not started
+**Status:** Complete (v0.4.0)
 **Priority:** HIGH — Forge runs 4 hooks every session but users can't tell. Without this, `/forge` feels manual.
 **Goal:** High-confidence proposals surface at session start without running `/forge`. Users always know Forge is watching.
 **Impacts:** UX
