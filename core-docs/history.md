@@ -37,6 +37,39 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Prompt hook investigation + concise systemMessage (P1 supplement)
+**Date:** 2026-04-05
+**Branch:** investigate-prompt-hooks
+
+**What was done:**
+Investigated Claude Code's hook system to find a better delivery channel for Forge proposals. Prototyped and rejected two approaches (Stop hook, directive systemMessage). Landed on simplifying the proactive systemMessage to a concise terminal notification: `"Forge has 3 proposals. Run /forge to review."`
+
+**Why:**
+FB-0007 identified that `systemMessage` doesn't guarantee a UX change — Claude may or may not mention it. The plan (P1 design question #2) called this out as the core visibility problem.
+
+**Key discovery:**
+The `systemMessage` from SessionStart hooks is displayed directly in the Claude Code terminal UI as a startup notification line (e.g., `"SessionStart/startup says: forge: Tracking 2 sessions..."`). This is **already a guaranteed visibility channel** — the user sees it without Claude needing to relay anything. The original concern (Claude ignoring the message) was about Claude not *mentioning* it in conversation, but the terminal notification means the user *always* sees it regardless.
+
+**Investigation findings:**
+- Claude Code supports 4 hook types: `command`, `http`, `prompt`, `agent`
+- `prompt` type sends input to Haiku for LLM evaluation — overkill for deterministic decisions
+- `Stop` hooks can return `{"decision": "block", "reason": "..."}` to prevent Claude from stopping. The `reason` becomes Claude's next instruction. `stop_hook_active` in hook input prevents infinite loops.
+- GitHub issues #16326 and #19659 confirmed that Claude ignoring systemMessage in conversation is a known limitation
+
+**What was prototyped and rejected:**
+1. **Stop hook (`stop-nudge.py`, 20 tests):** Forces Claude to mention proposals after completing the user's task via `decision: "block"`. Rejected: proposals are always one session behind, making forced mentions contextually irrelevant. Interrupts conversation flow.
+2. **Directive-style systemMessage:** Rewrote the message as `"IMPORTANT: Before responding, briefly tell them..."`. Rejected: the terminal notification would display the raw directive text (ugly), and if Claude followed it, it would preface every response with Forge info before answering the user's question (disruptive).
+
+**What was shipped:**
+Simplified `_format_proactive_message()` to a concise notification optimized for the terminal display:
+- Before: Multi-line message with proposal descriptions, evidence, occurrence counts (verbose, intended for Claude to relay)
+- After: `"Forge has 3 proposals. Run /forge to review."` (clean, user-facing, reads well in the terminal notification line)
+
+**Design decision:**
+The terminal notification line is the right delivery mechanism for ambient awareness. It's guaranteed visible, non-intrusive, and doesn't interfere with conversation. `/forge` remains the primary interaction point for reviewing and acting on proposals. The proactive selection logic (`_select_proactive_proposals`) still gates when the notification fires — it only shows when high-confidence proposals exist.
+
+---
+
 ### Ambient presence and proactive surfacing (P1)
 **Date:** 2026-04-04
 **Branch:** p1-effectiveness-tracking

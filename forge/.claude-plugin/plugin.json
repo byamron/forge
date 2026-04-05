@@ -1,6 +1,6 @@
 {
   "name": "forge",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Infrastructure architect for Claude Code. Analyzes your sessions, configuration, and auto-memory to generate optimized rules, skills, hooks, agents, and reference docs — and manages your context architecture over time.",
   "author": { "name": "byamron" },
   "homepage": "https://github.com/byamron/forge",
