@@ -34,9 +34,7 @@ The plugin lives in `forge/` and is tested with `claude --plugin-dir ./forge`. A
 
 ## Testing
 
-Test the plugin by running `claude --plugin-dir ./forge` against real projects. Use `claude --debug` for plugin loading and hook execution logs.
-
-Automated tests live in `tests/` and run with `pytest`. They cover security invariants, the transcript analyzer, cache manager, and proposal builder. Run with `python3 -m pytest tests/ -v`. Pytest is a dev-only dependency — runtime scripts use only the standard library.
+See `.claude/rules/testing.md` for testing details. Run `python3 -m pytest tests/ -v` before committing.
 
 ## License
 
@@ -63,9 +61,17 @@ All project documentation lives in `core-docs/`. Review and update these as part
 |------|------------------------|-----------------|
 | Skills | `forge/skills/` (`/forge`, `/forge:settings`, `/forge:version`) | `.claude/skills/` (`/ship`, `/audit`) |
 | Agents | `forge/agents/` (`session-analyzer`) | `.claude/agents/` (`planner`, `domain`, `testing`, `docs`) |
-| Rules | — | `.claude/rules/` (general, documentation, security, plugin-structure, python-scripts, skills-and-agents) |
+| Rules | — | `.claude/rules/` (general, documentation, security, plugin-structure, python-scripts, skills-and-agents, testing) |
 
 Dev agents are invoked with `claude --agent <name>`. See `core-docs/workflow.md` for the standard workflow.
+
+## Communication style
+
+Ask clarifying questions when genuinely unclear on a request, but don't over-ask — the user will request information when they need it. When using technical jargon or introducing terms, briefly explain what they mean inline. Keep all messages concise and direct.
+
+## Post-audit workflow
+
+After running /audit, if all checks pass and the branch would merge cleanly, open the PR automatically (run /ship) without asking — but do not merge. If the audit surfaces issues, fix what's straightforward and ask about anything ambiguous or risky. If there are merge conflicts or other blockers, surface them before proceeding.
 
 ## PR Readiness
 
