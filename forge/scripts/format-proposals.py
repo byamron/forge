@@ -211,10 +211,10 @@ def format_proposal_cards(
 
         safety_flagged = safety_triggered and ptype in safety_types
 
-        # Build preview from suggested_content for structural changes
+        # Build preview from suggested_content for all types that have it
         preview = ""
         content = p.get("suggested_content", "")
-        if content and ptype in ("demotion", "reference_doc"):
+        if content:
             lines = content.strip().splitlines()
             preview = "\n".join(lines[:5])
             if len(lines) > 5:

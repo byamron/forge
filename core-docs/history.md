@@ -37,6 +37,29 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Fix proposal text hidden by AskUserQuestion dialog
+**Date:** 2026-04-06
+**Branch:** proposal-text-truncation
+
+**What was done:**
+1. Updated SKILL.md to instruct the presenting Claude to include all card details **inside** the AskUserQuestion question text, not as separate text output before the dialog. The dialog was covering the last lines of proposal text.
+2. Changed `format-proposals.py` to build `preview` for all proposal types with `suggested_content`, not just `demotion` and `reference_doc`.
+
+**Why:**
+User reported proposal text appearing cut off mid-sentence during `/forge` presentation. The AskUserQuestion dialog was rendering on top of the proposal text printed above it, hiding the last few lines. The SKILL.md said to "show" card details then "ask" — the presenting Claude interpreted this as printing text first, then calling AskUserQuestion, whose UI covered the bottom of the output.
+
+**Design decisions:**
+- Fixed at the instruction level (SKILL.md) rather than trying to add spacing or padding. The right UX is for all card content to live inside the dialog's question text so nothing can be covered.
+
+**Technical decisions:**
+- Also expanded preview generation to all proposal types. Previously only `demotion` and `reference_doc` got previews — now any type with `suggested_content` gets one. This gives the card a controlled preview to display inside the dialog.
+
+**Tradeoffs discussed:**
+- Alternative: add blank lines between card text and the dialog prompt. Fragile — depends on terminal height and text length. Rejected.
+- Alternative: only fix SKILL.md without expanding previews. Would work, but expanding previews is independently useful for showing proposed content in a controlled way.
+
+---
+
 ### Fix proposal presentation UX: individual cards, ASCII rendering, notification gating
 **Date:** 2026-04-05
 **Branch:** trio-terminal-feedback
