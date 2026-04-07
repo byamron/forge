@@ -72,17 +72,17 @@ If `proposal_count` is 0, say setup looks good and stop.
 
 ### 2b. Walk through proposals individually
 
-Present each proposal from `proposal_cards` one at a time using `AskUserQuestion`. For each card, show:
+Present each proposal from `proposal_cards` one at a time using `AskUserQuestion`. **CRITICAL: Include the entire card as the question text inside AskUserQuestion.** Do NOT output the card details as separate text before the AskUserQuestion call — the dialog will cover any text printed above it. The question text must contain all of the following:
 
 1. **Title line:** "Proposal N/total: [description]"
 2. **Type and impact:** "[type] -- [impact]"
 3. **From:** the `origin` field -- where the content currently lives
 4. **To:** the `destination` field -- where it would go
 5. **Why:** the `reason` field -- evidence justifying this change
-6. If `preview` is non-empty, show it in a code block (first 5 lines of the proposed content)
+6. If `preview` is non-empty, include it (this is the proposed content preview)
 7. If `safety_flagged` is true, add: "[Safety review] This proposal will include human approval steps."
 
-Then ask the user with these options:
+Options for each question:
 - **Approve** -- "Generate and place the artifact now"
 - **Modify** -- "I'll tell you what to change first"
 - **Skip** -- "Keep for next time"
