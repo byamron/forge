@@ -37,6 +37,44 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### P9 plan: Session health analysis (planning only)
+**Date:** 2026-05-10
+**Branch:** token-usage-proposals
+**Commit:** (planning PR — no code changes)
+
+**What was done:**
+Added P9 to `core-docs/plan.md`: a new feature scoping opt-in deep session health analysis. Forge detects file access patterns (frequently-read files, sidechain tool patterns) in Phase A scripts at zero cost, then a separate LLM pass reads the relevant files and drafts scoped rules / purpose-built agents as proposals. Only the planning is in this PR — implementation deferred to a future branch.
+
+**Why:**
+Two inputs converged. (1) Claude Code shipped `/usage` showing token consumption breakdowns. (2) Recent Anthropic staff guidance (May 2026) framed session management — not raw token cost — as the #1 lever for Claude Code effectiveness. The question was how Forge should respond. Options ranged from "consume `/usage` output directly" (not feasible, client-side command) to "build informational dashboards" (rejected, not actionable) to "graduate to fully-drafted proposals with higher LLM budget" (selected).
+
+**Design decisions:**
+- **Actionable proposals only, no informational dashboards.** Earlier drafts proposed a "Session Insights" section showing file-read frequencies, sidechain counts, session length, and rewind tips. User feedback: "it's not clear to me that the patterns alone have value if they aren't actionable. Forge is supposed to meaningfully improve your workflow as automatically as possible (with your approval), not create more noise or more effort that you need to dedicate to optimizing your docs." Reverted to a proposals-only design — Forge generates artifacts the user can approve or ignore.
+- **Two-tier architecture: regular + deep.** Regular mode (zero LLM cost) computes signals in Phase A. Deep mode (opt-in, ~15-25K tokens per cycle) runs a second `claude -p --bare --model sonnet` invocation that reads files and drafts rules. This brings back the regular/deep split — but only for the new feature, not for the existing quality gate (which remains always-on per FB-0006).
+- **Opt-in default off.** The token cost is significant. Users who want the feature enable it via `/forge:settings`. Default off respects FB-0006's spirit (don't degrade quality) without contradicting it (this is a new feature, not a quality control).
+- **Reuse existing proposal types.** Frequent-read proposals are `type: "rule"`, sidechain-derived proposals are `type: "agent"`. No new `token_efficiency` type. This inherits the existing feedback calibration (impact deflation, safety gate, category precision).
+
+**Technical decisions:**
+- **Separate LLM invocation, not extending session-analyzer.** The session-analyzer's role is quality gate + pattern detection. Adding "read files and draft rules" muddies its purpose and inflates its prompt. A second `claude -p --bare` invocation with a focused prompt is cleaner.
+- **Sidechain extraction: tool names + truncated user text only.** Full sidechain content is large and noisy. Extracting tool names and the first user message (truncated to 200 chars) is enough for the LLM to determine purpose without exposing content. Implemented as `_extract_sidechain_summary` rather than modifying `parse_transcript()`'s sidechain skip — keeps the regular pipeline unchanged.
+- **`_extract_read_paths` is a new function, not a modification of `_extract_file_paths`.** The existing function captures paths from all tools (Write, Edit, Grep, Glob) for staleness detection. Modifying it would break staleness. A separate Read-only extractor is safer.
+- **Validation pipeline for LLM-drafted rules.** Path security via `validate-paths.py`, kebab-case filename check, YAML frontmatter must include `paths` field (otherwise the rule loads in tier 1 globally, defeating the purpose), content sanitized for control chars, ≤ 100 lines.
+
+**Tradeoffs discussed:**
+- **Informational dashboard vs proposals-only.** A dashboard surfacing patterns ("Claude reads config.ts in 87% of sessions") is cheaper to build but doesn't fit Forge's "do the work for the user" ethos. User explicitly rejected it. Proposals-only requires LLM cost but produces concrete artifacts.
+- **`token_efficiency` type vs reusing existing types.** A new type would be cleanly attributed but breaks feedback calibration. Reusing `rule`/`agent` types means dismiss feedback flows into existing category precision tracking. Chose reuse.
+- **Always-on vs opt-in.** Always-on would mean every Forge user pays ~15-25K tokens per cycle for a feature they might not want. Opt-in respects user choice. The existing quality gate is always-on at ~5K tokens because the cost is negligible relative to value; P9's cost is high enough to justify a setting.
+- **Single omnibus builder vs separate builders.** Earlier draft put all signals in one `_build_from_token_efficiency`. Staff review caught that this breaks the one-builder-per-concern pattern. Now `_build_from_frequent_reads` handles both rule and agent proposals from session health (since they come from the same LLM pass), but cleanly separated from other builders.
+- **Cache merge logic.** Deep analysis cache replaces script proposals (existing behavior). Session health cache is additive — proposals appended, deduplicated by ID. Both pass through the standard dismissed/applied filter.
+
+**Lessons learned:**
+- Surfacing data without action is anti-Forge. The product's core value is doing the work; dashboards delegate the work back to the user.
+- Token budget is not a hard constraint when ROI is positive. Reading a 500-line file once (~1-2K tokens) to draft a rule that saves ~500-2K tokens per session over 10+ sessions is a net win. The earlier "informational only" framing avoided LLM cost at the price of usefulness.
+- External signals matter. `/usage` and Anthropic guidance reframed the problem from "token efficiency" to "session health," which sharpened positioning.
+- Plans should be re-examined whenever scope or framing shifts. The plan was rewritten three times during this session — each rewrite caught real gaps. A staff review pass before any PR is implementation-bound is worth the time.
+
+---
+
 ### Fix proposal text hidden by AskUserQuestion dialog
 **Date:** 2026-04-06
 **Branch:** proposal-text-truncation

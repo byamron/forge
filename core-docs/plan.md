@@ -649,6 +649,183 @@ v0.4.2 added a confidence gate that filters `confidence != "high"`. This removed
 
 ---
 
+### P9. Session health analysis
+**Status:** Not started
+**Priority:** LOW — not blocking anything, but a genuine differentiator. Complements Claude Code's native `/usage` command and aligns with Anthropic's emphasis on session management as the #1 lever for Claude Code effectiveness.
+**Goal:** Detect session health patterns from transcript data and generate fully actionable proposals — Forge reads the files, drafts the rules, and presents them for approval. Opt-in deep mode with higher LLM budget, justified by long-term token savings.
+**Impacts:** UX, Accuracy
+
+**Relationship to 5.2 Self-Cost Tracking:** 5.2 is introspection ("how much does Forge cost?"). P9 is user-facing value ("how can your sessions be more effective?"). They are orthogonal.
+
+**Background:**
+Recent Anthropic staff guidance (May 2026) positions session management as the primary lever for Claude Code effectiveness. Key points: context rot degrades performance around ~300-400k tokens; starting fresh sessions for new tasks is critical; rewind is preferred over correction; subagents are a context management tool. Claude Code's `/usage` command shows token consumption with generic tips. Forge can detect project-specific patterns and generate concrete artifacts to address them.
+
+**Core principle:** Informational signals without actionable proposals don't meet Forge's bar. Forge's value is in doing the work: analyze, propose, apply. P9 must generate fully drafted artifacts the user can approve — not dashboards the user has to interpret.
+
+**Positioning:** `/usage` says "you're using a lot of tokens." Generic guidance says "start new sessions for new tasks." Forge says "Claude reads `src/config.ts` in 87% of your sessions — here's a scoped rule summarizing its key facts so Claude doesn't need to re-read it. Approve?"
+
+**Design decisions:**
+
+1. **`intra_session_reread` signal cut.** Re-reading a file 3+ times within a session is normal read-modify-verify behavior, not waste (FB-0008 risk).
+
+2. **`session_tool_paths` does not measure reads.** `_extract_file_paths()` pulls paths from all tools. P9 needs Read-specific tracking via tool name filtering.
+
+3. **No new proposal type.** Frequent-read proposals use `type: "rule"`, sidechain proposals use `type: "agent"`. Reuses existing feedback calibration.
+
+4. **One builder per LLM pass.** Both frequent-read rule proposals and sidechain-derived agent proposals come from the same `_run_session_health_analysis()` LLM invocation, so they are handled by a single builder (`_build_from_frequent_reads`) — kept separate from other builders, but unified for proposals sourced from the same cache. The builder dispatches on proposal `type` to apply the appropriate validation (rule vs agent paths).
+
+5. **Two-tier architecture: regular + deep.** Regular mode (zero LLM cost) computes signals in Phase A scripts. Deep session health mode (opt-in, ~15-25K additional tokens) runs a second LLM pass that reads frequently-accessed files and drafts proposals. This mirrors the original regular/deep split but for a different purpose: the always-on quality gate filters proposals, the opt-in deep session analysis generates new ones from file access patterns.
+
+6. **ROI justification for deep mode.** Reading a ~500-line file costs ~1-2K tokens once. A good scoped rule (3-5 lines) that prevents re-reading that file saves ~500-2K tokens per session. Over 10 sessions, that's 5-20K tokens saved. The deep analysis pass costs ~15-25K tokens and covers multiple files — ROI is positive within 1-2 analysis cycles if even one rule is useful.
+
+7. **Sidechain counting architecture.** `parse_transcript()` doesn't know the session_id. Counting happens in `main()` via lightweight second pass. Deep mode additionally reads sidechain tool names (not full content) to determine purpose.
+
+**Signals and their remedies:**
+
+| Signal | Detection (regular, zero cost) | Remedy (deep, opt-in LLM) |
+|--------|-------------------------------|---------------------------|
+| Frequently-read files | Track Read tool paths across sessions | LLM reads the file, drafts a scoped rule summarizing key facts |
+| Sidechain tool patterns | Count `isSidechain` entries per session; extract sidechain tool names | LLM examines tool patterns, determines if a purpose-built agent would consolidate repeated patterns |
+
+**Signals dropped from earlier drafts:**
+- **Session length (turn count):** No automatable remedy — Forge can't make a user start new sessions.
+- **Context budget utilization:** Already covered by demotion proposals.
+- **Early-turn corrections:** Overlaps with the existing correction builder (`_build_from_corrections`). The correction builder already detects repeated corrections and proposes rules. Adding turn-position weighting could be a future refinement to that builder, not a new signal.
+
+**Implementation plan:**
+
+#### Step 1: Signal detection (Phase A, zero cost)
+
+**File:** `forge/scripts/analyze-transcripts.py`
+**Changes:**
+- Add `_extract_read_paths(tool_uses: list) -> List[str]` — like `_extract_file_paths` but filtered to `name == "Read"`. Existing function unchanged.
+- Add `_extract_sidechain_summary(filepath: Path) -> Dict` — lightweight second pass over a JSONL file that, for entries with `isSidechain == True`, extracts only `tool_uses[].name` (not full content) and the user message text (truncated to 200 chars for context). Returns `{"count": int, "tool_names": List[str], "first_user_text": str}`. The first user text helps the LLM understand sidechain purpose without exposing full content.
+- In `main()` output building, compute new fields:
+  - `read_file_frequency: Dict[str, Dict]` — file path → `{"sessions": int, "total_sessions": int, "ratio": float}`. No pre-filter threshold.
+  - `sidechain_summary: Dict[str, Dict]` — session_id → `{"count": int, "tool_names": List[str], "first_user_text": str}`. Computed from `_extract_sidechain_summary` per session file. ~50ms for 30 sessions.
+- Existing `parse_transcript()` sidechain skip unchanged — sidechains remain excluded from correction/workflow analysis (regular pipeline). Only the new extraction function reads sidechain content for the deep analysis prompt.
+
+#### Step 2: Deep session health analysis (opt-in LLM pass)
+
+**New setting:** `session_health_analysis: true/false` (default: `false`). Configured via `/forge:settings`.
+
+**File:** `forge/scripts/background-analyze.py`
+**Changes:**
+- After `_run_deep_analysis()` (the quality gate), check `session_health_analysis` setting.
+- If enabled, call new `_run_session_health_analysis()`:
+  1. Read cached `read_file_frequency` from transcripts cache
+  2. Select top N files (N ≤ 5) with read ratio > 0.6 and sessions ≥ 3
+  3. Read cached `sidechain_summary` — compute aggregate stats (avg count, total sessions with sidechains, common tool names)
+  4. Build a prompt for a second `claude -p --bare --model sonnet` invocation:
+     - Include the file paths and their read ratios
+     - Include sidechain summary (avg count, session count)
+     - Instruct the LLM: "Read each listed file. For each, determine if a scoped rule (3-5 lines, with `paths` frontmatter) summarizing its key facts would prevent Claude from needing to re-read it. Consider: what information does Claude typically need from this file? Is it stable enough that a rule won't go stale? Only draft a rule if the file contains stable configuration, conventions, or structure that Claude repeatedly needs. Output JSON with proposals matching the standard schema."
+     - For sidechains: "Given the sidechain counts, if you detect patterns in tool usage, suggest a purpose-built agent. Otherwise, omit."
+  5. Cache result as `session-health.json` alongside `deep-analysis.json`
+  6. Timeout: 120s (same as existing deep analysis)
+
+**File:** `forge/scripts/cache-manager.py`
+**Changes:**
+- When reading proposals (`--proposals`), load `session-health.json` if it exists and append its `additional_proposals` array to the proposal set. The deep analysis cache (`deep-analysis.json`) replaces script proposals (existing behavior). Session health proposals are additive — they don't replace anything. Order: deep-filtered script proposals first, then session-health additions, then deduplicated against dismissed/applied IDs by `build-proposals.py`.
+
+**File:** `forge/scripts/build-proposals.py`
+**Changes:**
+- Add `_validate_session_health_proposal(proposal: Dict) -> bool` — validates LLM-drafted proposals before they enter the pipeline:
+  1. Path security: must be within `.claude/rules/` (use `validate-paths.py` helper)
+  2. Filename: kebab-case, ends in `.md`
+  3. YAML frontmatter parses cleanly
+  4. `paths` field is set (otherwise the rule loads in tier 1, defeating the purpose of the analysis)
+  5. `suggested_content` non-empty and ≤ 100 lines (rules budget)
+  6. Sanitize content via existing `_sanitize_text` (control char strip)
+- Add `_build_from_frequent_reads(session_health_cache: Optional[Dict], existing_rules: List[Dict], existing_agents: List[Dict]) -> List[Dict]` — called when session-health cache exists. Reads proposals from cache, runs `_validate_session_health_proposal` on each, dispatches on proposal `type`:
+  - `type: "rule"` → validate against `.claude/rules/`, dedup against `existing_rules` by `paths` overlap
+  - `type: "agent"` → validate against `.claude/agents/`, dedup against `existing_agents` by name
+  - Returns validated proposals with `origin: "session_health"`.
+- Extend `build_proposals()` signature to accept `session_health_cache: Optional[Dict] = None` (keyword arg with default for backward compatibility). Caller (`cache-manager.py`) loads the cache and passes it in. Register the builder call in `build_proposals()`, gated on cache existence.
+
+**File:** `forge/scripts/format-proposals.py`
+**Changes:**
+- Add origin handling for `origin: "session_health"` in `_extract_origin()`: "file access patterns (session health analysis)".
+
+**File:** `forge/skills/settings/SKILL.md`
+**Changes:**
+- Add `session_health_analysis` option: "Deep session health analysis: reads your most-accessed files and drafts rules to reduce re-reading. Runs in background, costs ~15-25K tokens per cycle. Off by default."
+
+**File:** `forge/scripts/read-settings.py`, `forge/scripts/write-settings.py`
+**Changes:**
+- Add `session_health_analysis: False` to the `DEFAULTS` dict in `read-settings.py` (line 17). The existing settings system filters unknown keys (line 44-45), so the key must be in `DEFAULTS` to be persisted.
+
+#### Step 3: Tests
+
+**File:** `tests/test_analyze_transcripts.py` — new tests:
+- `test_extract_read_paths_filters_by_tool_name` — only Read tools
+- `test_read_file_frequency_computation` — correct ratio across sessions
+- `test_read_file_frequency_empty_sessions` — no tool uses → empty output
+- `test_sidechain_summary_extraction` — correct count, tool names, truncated user text
+- `test_sidechain_summary_truncates_user_text` — text capped at 200 chars
+- `test_sidechain_still_skipped_for_analysis` — excluded from correction/workflow analysis (regression)
+
+**File:** `tests/test_background_analyze.py` — new tests:
+- `test_session_health_skipped_when_disabled` — setting off → no invocation
+- `test_session_health_runs_when_enabled` — setting on → invocation attempted
+- `test_session_health_selects_top_files` — only files above ratio threshold
+- `test_session_health_cache_written` — result cached as session-health.json
+- `test_session_health_timeout_handled` — timeout doesn't crash
+
+**File:** `tests/test_build_proposals.py` — new tests:
+- `test_frequent_read_proposal_uses_rule_type` — `type` is `"rule"`
+- `test_frequent_read_deduplicates_against_existing_rules` — no proposal if rule exists for that file's path
+- `test_session_health_proposal_validation_path_security` — paths outside `.claude/rules/` rejected
+- `test_session_health_proposal_validation_filename` — non-kebab-case filenames rejected
+- `test_session_health_proposal_validation_frontmatter` — proposals without `paths` field rejected
+- `test_session_health_proposal_validation_content_length` — proposals over 100 lines rejected
+- `test_session_health_proposals_merge_with_pipeline` — proposals appear in final output alongside normal proposals
+
+Target: ~17 new tests.
+
+**Version bump:** Required (changes to files under `forge/`).
+
+**Token budget:**
+- Regular mode (signal detection): 0 additional tokens
+- Deep session health (opt-in): ~15-25K tokens per analysis cycle
+  - File reads: ~5-15K (3-5 files × 1-3K each)
+  - LLM reasoning + rule drafting: ~5-10K
+  - Runs in background, same cadence as existing deep analysis
+
+#### Step 4: Real-world validation (before declaring P9 complete)
+
+P0 validation taught that classifier accuracy alone doesn't guarantee proposal quality (FB-0008). Before P9 is considered shipped:
+
+1. Enable `session_health_analysis` on 2-3 real projects with established session history (Forge repo, portfolio-site, PriorityAppXcode, or similar).
+2. Run background analysis. Wait for `session-health.json` cache to populate.
+3. Run `/forge`. Record every session-health proposal: file targeted, drafted content, decision (approve/modify/skip/dismiss), reason if dismissed.
+4. Compute acceptance rate. Target: >50% approval rate. If below, identify failure mode (e.g., volatile files, generic content, paths frontmatter issues) and tune the prompt.
+5. Document validation results in plan.md under a P9 validation results section, mirroring the P0 validation results format.
+6. Mark validation results clearly as agent-simulated vs user-decided per FB-0011.
+
+**Acceptance criteria:**
+- Regular mode: `read_file_frequency` and `sidechain_summary` computed correctly in transcript analysis output. Zero cost.
+- Deep mode: when `session_health_analysis` is enabled, Forge reads frequently-accessed files, drafts scoped rules, and presents them as standard proposals in `/forge`.
+- LLM-drafted proposals pass validation: valid path, kebab-case filename, parseable frontmatter with `paths` field, content non-empty and ≤ 100 lines.
+- Proposals use `type: "rule"` (or `type: "agent"` for sidechain-derived) and integrate with existing feedback calibration (dismiss, approve, skip).
+- A drafted rule for a frequently-read config file is specific to the file's actual content — not generic advice.
+- Real-world validation: >50% approval rate across 2-3 real projects.
+- All new tests pass, no existing tests regressed.
+- Signal detection adds <100ms. Deep analysis runs within 120s timeout.
+
+**Alignment notes:**
+- **FB-0006 (LLM gate not optional):** P9 doesn't make the quality gate optional. The session-analyzer runs unchanged. P9 adds a *separate* opt-in feature with its own LLM budget. Quality is never degraded.
+- **FB-0008 (memory promotion noise):** The validation step (Step 4) exists specifically to catch this failure mode. Drafted content that's generic or duplicates existing rules must be filtered before shipping.
+- **FB-0011 (label simulated decisions):** Validation results must label whether decisions are agent-simulated.
+
+**Open questions for implementation:**
+- What is the right read-frequency threshold? >60% for deep analysis selection, >80% for high confidence? Needs real-world data.
+- How to handle files that change frequently? A rule summarizing a volatile file will go stale. The LLM prompt should instruct: "Only draft rules for files with stable content (configuration, conventions, structure). Skip files that change frequently."
+- Should the deep analysis prompt include the file's git change frequency to help the LLM decide? `git log --oneline <path> | wc -l` would add this signal cheaply.
+- Can transcript data detect compaction events? If so, compaction frequency would be a high-value signal for a future iteration.
+
+---
+
 ## Completed Work Items (archived)
 
 <details>
@@ -728,6 +905,8 @@ v0.4.2 added a confidence gate that filters `confidence != "high"`. This removed
 | 4.5 Explain mode | ❌ P5 | /forge --explain with evidence trail |
 | 4.6 CI/CD | ✅ Done | GitHub Actions, Python 3.8 + 3.9 matrix, CI-only branch protection on main |
 | 4.7 Deep analysis e2e | ❌ P7 | Verify --deep works end-to-end |
+| 4.8 Context-aware confidence | ❌ P8 | Confidence scoring accounts for context pressure |
+| 4.9 Session health analysis | ❌ P9 | Opt-in deep analysis of file access patterns → LLM-drafted rules |
 
 ### Phase 5: Advanced (v1.0) — Not started
 
