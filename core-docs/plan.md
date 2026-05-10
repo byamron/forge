@@ -658,7 +658,7 @@ v0.4.2 added a confidence gate that filters `confidence != "high"`. This removed
 **Relationship to 5.2 Self-Cost Tracking:** 5.2 is introspection ("how much does Forge cost?"). P9 is user-facing value ("how can your sessions be more effective?"). They are orthogonal.
 
 **Background:**
-Anthropic staff guidance (2026-04-19) positions session management as the primary lever for Claude Code effectiveness. Key points: context rot degrades performance around ~300-400k tokens; starting fresh sessions for new tasks is critical; rewind is preferred over correction; subagents are a context management tool. Claude Code's `/usage` command shows token consumption with generic tips. Forge can detect project-specific patterns and generate concrete artifacts to address them.
+Recent Anthropic staff guidance (May 2026) positions session management as the primary lever for Claude Code effectiveness. Key points: context rot degrades performance around ~300-400k tokens; starting fresh sessions for new tasks is critical; rewind is preferred over correction; subagents are a context management tool. Claude Code's `/usage` command shows token consumption with generic tips. Forge can detect project-specific patterns and generate concrete artifacts to address them.
 
 **Core principle:** Informational signals without actionable proposals don't meet Forge's bar. Forge's value is in doing the work: analyze, propose, apply. P9 must generate fully drafted artifacts the user can approve — not dashboards the user has to interpret.
 
@@ -672,7 +672,7 @@ Anthropic staff guidance (2026-04-19) positions session management as the primar
 
 3. **No new proposal type.** Frequent-read proposals use `type: "rule"`, sidechain proposals use `type: "agent"`. Reuses existing feedback calibration.
 
-4. **Separate builders.** `_build_from_frequent_reads` and `_build_from_sidechain_analysis` as separate functions.
+4. **One builder per LLM pass.** Both frequent-read rule proposals and sidechain-derived agent proposals come from the same `_run_session_health_analysis()` LLM invocation, so they are handled by a single builder (`_build_from_frequent_reads`) — kept separate from other builders, but unified for proposals sourced from the same cache. The builder dispatches on proposal `type` to apply the appropriate validation (rule vs agent paths).
 
 5. **Two-tier architecture: regular + deep.** Regular mode (zero LLM cost) computes signals in Phase A scripts. Deep session health mode (opt-in, ~15-25K additional tokens) runs a second LLM pass that reads frequently-accessed files and drafts proposals. This mirrors the original regular/deep split but for a different purpose: the always-on quality gate filters proposals, the opt-in deep session analysis generates new ones from file access patterns.
 
@@ -715,7 +715,7 @@ Anthropic staff guidance (2026-04-19) positions session management as the primar
 - If enabled, call new `_run_session_health_analysis()`:
   1. Read cached `read_file_frequency` from transcripts cache
   2. Select top N files (N ≤ 5) with read ratio > 0.6 and sessions ≥ 3
-  3. Read cached `sidechain_counts` — compute summary stats
+  3. Read cached `sidechain_summary` — compute aggregate stats (avg count, total sessions with sidechains, common tool names)
   4. Build a prompt for a second `claude -p --bare --model sonnet` invocation:
      - Include the file paths and their read ratios
      - Include sidechain summary (avg count, session count)
@@ -737,9 +737,11 @@ Anthropic staff guidance (2026-04-19) positions session management as the primar
   4. `paths` field is set (otherwise the rule loads in tier 1, defeating the purpose of the analysis)
   5. `suggested_content` non-empty and ≤ 100 lines (rules budget)
   6. Sanitize content via existing `_sanitize_text` (control char strip)
-- Add `_build_from_frequent_reads(transcripts: Dict, existing_rules: List[Dict], session_health_cache: Optional[Dict]) -> List[Dict]` — called when session-health cache exists. Reads proposals from cache, runs `_validate_session_health_proposal` on each, deduplicates against existing rules (by `paths` field overlap). Returns validated proposals with `origin: "session_health"`.
-- Sidechain-derived agent proposals: same validation pattern but targeting `.claude/agents/`. Implemented as part of the same builder since they come from the same LLM pass.
-- Register in `build_proposals()`, gated on session health cache existence.
+- Add `_build_from_frequent_reads(session_health_cache: Optional[Dict], existing_rules: List[Dict], existing_agents: List[Dict]) -> List[Dict]` — called when session-health cache exists. Reads proposals from cache, runs `_validate_session_health_proposal` on each, dispatches on proposal `type`:
+  - `type: "rule"` → validate against `.claude/rules/`, dedup against `existing_rules` by `paths` overlap
+  - `type: "agent"` → validate against `.claude/agents/`, dedup against `existing_agents` by name
+  - Returns validated proposals with `origin: "session_health"`.
+- Extend `build_proposals()` signature to accept `session_health_cache: Optional[Dict] = None` (keyword arg with default for backward compatibility). Caller (`cache-manager.py`) loads the cache and passes it in. Register the builder call in `build_proposals()`, gated on cache existence.
 
 **File:** `forge/scripts/format-proposals.py`
 **Changes:**
@@ -913,7 +915,6 @@ P0 validation taught that classifier accuracy alone doesn't guarantee proposal q
 | 5.1 Cross-project aggregation | ❌ Deferred | Opt-in only, requires privacy design |
 | 5.2 Self-cost tracking | ❌ Not started | Token consumption reporting |
 | 5.3 Export/share | ❌ Not started | Package config as shareable zip |
-| 5.4 Session health analysis | ❌ P9 | Opt-in deep analysis of file access patterns → LLM-drafted rules |
 
 ---
 
