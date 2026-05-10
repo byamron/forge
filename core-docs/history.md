@@ -38,7 +38,7 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 ## Entries
 
 ### P9 plan: Session health analysis (planning only)
-**Date:** 2026-04-27
+**Date:** 2026-05-10
 **Branch:** token-usage-proposals
 **Commit:** (planning PR — no code changes)
 
@@ -46,7 +46,7 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 Added P9 to `core-docs/plan.md`: a new feature scoping opt-in deep session health analysis. Forge detects file access patterns (frequently-read files, sidechain tool patterns) in Phase A scripts at zero cost, then a separate LLM pass reads the relevant files and drafts scoped rules / purpose-built agents as proposals. Only the planning is in this PR — implementation deferred to a future branch.
 
 **Why:**
-Two inputs converged. (1) Claude Code shipped `/usage` showing token consumption breakdowns. (2) Anthropic staff guidance (2026-04-19) framed session management — not raw token cost — as the #1 lever for Claude Code effectiveness. The question was how Forge should respond. Options ranged from "consume `/usage` output directly" (not feasible, client-side command) to "build informational dashboards" (rejected, not actionable) to "graduate to fully-drafted proposals with higher LLM budget" (selected).
+Two inputs converged. (1) Claude Code shipped `/usage` showing token consumption breakdowns. (2) Recent Anthropic staff guidance (May 2026) framed session management — not raw token cost — as the #1 lever for Claude Code effectiveness. The question was how Forge should respond. Options ranged from "consume `/usage` output directly" (not feasible, client-side command) to "build informational dashboards" (rejected, not actionable) to "graduate to fully-drafted proposals with higher LLM budget" (selected).
 
 **Design decisions:**
 - **Actionable proposals only, no informational dashboards.** Earlier drafts proposed a "Session Insights" section showing file-read frequencies, sidechain counts, session length, and rewind tips. User feedback: "it's not clear to me that the patterns alone have value if they aren't actionable. Forge is supposed to meaningfully improve your workflow as automatically as possible (with your approval), not create more noise or more effort that you need to dedicate to optimizing your docs." Reverted to a proposals-only design — Forge generates artifacts the user can approve or ignore.
