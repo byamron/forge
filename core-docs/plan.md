@@ -828,8 +828,10 @@ P0 validation taught that classifier accuracy alone doesn't guarantee proposal q
 
 ### P10. Synthesis boundaries (detect-always, surface-rarely)
 **Status:** Not started
-**Priority:** HIGH — biggest single insight transferred from Designer-Noticed. Resolves a long-standing UX pain: Forge re-evaluates and re-surfaces at every SessionStart, which makes the nudge frequency setting feel meaningless and trains users to ignore the terminal notification.
+**Priority:** HIGH — biggest single insight transferred from Designer-Noticed. Verified in `forge/scripts/check-pending.py` lines 141-153: the proposal-count notification fires every SessionStart whenever `proactive_proposals` is enabled, the deep cache is fresh, and `pending_count > 0` — there is no last-surfaced state. Users see the same "Forge has N proposals" line on every session start until they either run `/forge` or dismiss all proposals, which trains them to ignore the notification.
 **Goal:** Split *detection* (background analysis, runs every SessionStart) from *surfacing* (terminal notification, fires only at meaningful boundaries). Proposals are always computed and cached; the notification only appears when a boundary has been crossed.
+
+**Behavior change for existing users:** This changes the default surface cadence for users on `nudge_level: "balanced"` (the default). Today they see a proposal notification on every SessionStart until acted on. After P10 they see one only when a boundary is crossed. The migration story is documented in Step 3 — users who prefer the current always-on behavior set `nudge_level: "eager"`.
 **Impacts:** UX, trust
 
 **Origin:** Designer-Noticed splits its pipeline at a synthesis boundary — detectors fire on every event, but `AppCore::synthesize_pending()` only runs on track completion (debounced 30s) or first workspace-home view of the day per project. The result is a calmer feed where each notification reflects a genuine change in state. Forge has all the same primitives (background analysis on SessionStart, pending proposals cache, last-run cache from P2) but lacks the boundary gate.
@@ -965,6 +967,9 @@ The choice of evidence parts is per-builder and documented in a docstring on eac
 - When writing `dismissed.json` and `history/applied.json`, include `window_digest` on each entry.
 - This unblocks a future change: dedup against dismissed/applied by digest rather than ID, so renaming a proposal doesn't bypass dismissal. Not in scope for P11 — just record the field now so historical data is usable later.
 
+**Non-goals (explicitly deferred):**
+- **Cross-run dedup against applied/dismissed by digest.** P11's dedup operates within a single proposal-building run. The existing applied-ID and dismissed-ID filters (P0a) continue to key on `proposal.id`. This means: if P11 reshapes a builder so its proposals get different IDs but the same digest as previously-applied/dismissed ones, those proposals can re-surface. The fix is straightforward once the digest field is present in historical records (Step 4) — add a `dismissed_digests` / `applied_digests` set alongside the existing ID sets in `build_proposals()` — but it requires waiting for enough history to accumulate the digest field. Track as a P11 follow-up; not blocking.
+
 **Tests:** ~4-6 new tests in `test_build_proposals.py`:
 - Same evidence in two builders → different digests (builder name disambiguates)
 - Same evidence in two runs → same digest (deterministic)
@@ -980,10 +985,10 @@ The choice of evidence parts is per-builder and documented in a docstring on eac
 
 ---
 
-### P12. New proposal kinds: removal & conflict-resolution
+### P12. New proposal kinds: archive & conflict-resolution
 **Status:** Not started
 **Priority:** MEDIUM — fills two real gaps in Forge's proposal taxonomy that Designer-Noticed exposed.
-**Goal:** Two new builders covering pruning (`RemovalCandidate`) and contradiction detection (`ConflictResolution`). Both reuse existing proposal types where possible — no new types in the schema, just new origins.
+**Goal:** Two new builders covering pruning (`type: "archive"` — non-destructive move to `.claude/forge/archive/`) and contradiction detection (`origin: "conflict_resolution"`). The archive builder replaces an earlier "removal" design that would have required expanding the destructive-operations security rule.
 **Impacts:** Accuracy, completeness
 
 **Origin:** Designer's `ProposalKind` enum includes `RemovalCandidate`, `Demotion`, and `ConflictResolution`. Forge today has demotion only — and demotion fires only when CLAUDE.md is over-budget. Stale rules with low reference rate get *flagged* (staleness builder) but never proactively *removed*. And no builder detects when two rules contradict each other.
@@ -992,15 +997,22 @@ The choice of evidence parts is per-builder and documented in a docstring on eac
 
 These are two independent builders that ship together for narrative cohesion. Either can be deferred individually.
 
-**A. Removal candidate builder**
+**A. Archive candidate builder (renamed from "removal")**
 
-Today: `_build_from_staleness()` produces a "this rule is stale" notice but no removal proposal — the user has to act manually. Result: stale rules accumulate.
+Today: `_build_from_staleness()` produces a "this rule is stale" notice but no follow-up proposal — the user has to act manually. Result: stale rules accumulate.
 
-Change: when a rule meets stricter thresholds (reference ratio < 0.10 AND sessions_analyzed ≥ 10 AND age ≥ 30 days), emit a `type: "removal"` proposal with full `suggested_path` and the existing rule content as `current_content` (so the user sees what's being removed). Status: `pending`; on approve, `finalize-proposals.py` deletes the file (this is one of the two exceptions to the never-delete rule — must be added to `.claude/rules/security.md` with explicit gating).
+**Why archive, not delete:** The security rule (`.claude/rules/security.md`) lists exactly two destructive-operation exceptions, both narrow mechanical migrations of Forge-owned artifacts moving between known locations (legacy `commands/` → skills, legacy `.claude/forge/` → user-level storage). Heuristic-driven proactive removal based on staleness thresholds is a categorically different exception — proactive, not migratory; threshold-driven, not location-driven. Adding it would be a substantive policy expansion that deserves its own decision, not a checkbox in a planning PR.
 
-Gating:
-- Only files Forge generated (must appear in `history/applied.json`). Forge never proposes removal of user-authored content.
-- User confirmation requires typing the rule filename — defense-in-depth against accidental approval. Implemented in `forge/skills/forge/SKILL.md` Step where removals are presented.
+The archive design sidesteps the security rule entirely. Approving an archive proposal **moves** the file from its current location to `.claude/forge/archive/<original-relative-path>.md`, preserving the content and the original path-in-name. This is a write operation (within the already-permitted `.claude/forge/` boundary) plus a delete-after-copy of the source file. Per the security rule's two existing exceptions, copy-then-delete migrations of Forge-owned artifacts are already in scope. The user can manually delete the archive directory later if they want; Forge never does.
+
+When (stricter thresholds): reference ratio < 0.10 AND sessions_analyzed ≥ 10 AND age ≥ 30 days. Emit `type: "archive"` proposal with full `suggested_path` (the existing rule path) and the file content as `current_content` preview.
+
+Gating (defense in depth):
+- **Forge-generated only.** Path must appear in `history/applied.json`. Forge never proposes archival of user-authored content.
+- **Type-to-confirm.** Approval requires typing the rule filename in the SKILL.md confirmation flow. Defense against accidental approval.
+- **Reversible.** The file is in `.claude/forge/archive/` — `git mv` it back if approval was a mistake.
+
+**Open question for implementation:** should the archive proposal be one of the kinds the boundary gate (P10) treats as high-confidence enough to surface independently, or should it stay batched with other proposals? Lean toward batched — archival is never urgent.
 
 **B. Conflict resolution builder**
 
@@ -1012,28 +1024,33 @@ Output: `type: "rule"` proposal with `origin: "conflict_resolution"` and an expl
 
 **Implementation plan:**
 
-#### Step 1: Removal candidate builder
+#### Step 1: Archive candidate builder
 
 **File:** `forge/scripts/build-proposals.py`
 **Changes:**
-- Add `_build_from_removals(config: Dict, transcripts: Dict, applied_history: List[Dict]) -> List[Dict]`.
-- Threshold constants at top of file: `REMOVAL_REF_RATIO_MAX = 0.10`, `REMOVAL_MIN_SESSIONS = 10`, `REMOVAL_MIN_AGE_DAYS = 30`.
-- Gate: only rules with `id` matching an entry in `applied_history`.
+- Add `_build_from_archive_candidates(config: Dict, transcripts: Dict, applied_history: List[Dict]) -> List[Dict]`.
+- Threshold constants at top of file: `ARCHIVE_REF_RATIO_MAX = 0.10`, `ARCHIVE_MIN_SESSIONS = 10`, `ARCHIVE_MIN_AGE_DAYS = 30`.
+- Gate: only rules whose `id` matches an entry in `applied_history`.
 - Register in `build_proposals()` after the staleness builder.
 
 **File:** `forge/scripts/finalize-proposals.py`
 **Changes:**
-- Handle `type: "removal"` in the apply path: validate the path is within `.claude/`, validate it appears in `applied_history`, then `Path.unlink()`.
-- Record removal in `history/applied.json` with `action: "removed"` and original content snapshot in the record (for audit/recovery).
+- Handle `type: "archive"` in the apply path:
+  1. Validate source path is within `.claude/` and matches an `applied_history` entry.
+  2. Compute destination: `.claude/forge/archive/<rel-path-from-claude-dir>` (e.g., `.claude/rules/foo.md` → `.claude/forge/archive/rules/foo.md`).
+  3. Create destination parent directories if missing.
+  4. If destination already exists (re-archived after being un-archived), append a UTC timestamp to the destination filename.
+  5. Copy source to destination, fsync, then `unlink()` source. Order matters: copy-then-delete keeps the migration safe under interruption.
+- Record archival in `history/applied.json` with `action: "archived"`, `source_path`, `archive_path`, and original content snapshot (for double-redundancy beyond the file itself).
 
 **File:** `forge/skills/forge/SKILL.md`
 **Changes:**
-- New section for removal proposals: show full content preview, require confirmation step. Don't bundle removals with other proposals in the same AskUserQuestion — present one at a time.
+- New section for archive proposals: show full content preview, require type-to-confirm filename input. Don't bundle archive proposals with other proposals in the same AskUserQuestion — present one at a time. Include a one-line note: "Files are moved to `.claude/forge/archive/`, not deleted. Restore with `git mv` or by editing the archive directory."
 
 **File:** `.claude/rules/security.md`
 **Changes:**
-- Add removal proposals as the second explicit deletion exception (alongside the existing legacy `.claude/commands/*.md` migration).
-- Document the gating rules: Forge-generated only, user re-confirms by typing filename, full content preserved in applied history.
+- No new exception needed. The archive flow is copy-then-delete within the existing `.claude/forge/` write boundary, structurally identical to the legacy-storage migration exception (#2) already permitted.
+- Add a short clarifying note under "Destructive operations" that "copy-then-delete migration of Forge-generated artifacts into `.claude/forge/archive/` is permitted under the same logic as the legacy-storage migration."
 
 #### Step 2: Conflict resolution builder
 
@@ -1052,21 +1069,25 @@ Output: `type: "rule"` proposal with `origin: "conflict_resolution"` and an expl
 - When `resolves_conflict_between` is present, show "Applying this resolves a conflict with: X, Y" in the proposal description.
 
 **Tests:** ~10-15 new tests:
-- `test_removal_only_for_applied_rules` — user-authored rules never proposed for removal
-- `test_removal_thresholds` — below thresholds → no proposal
-- `test_removal_apply_unlinks_file` — file actually removed on approve
-- `test_removal_apply_records_content_snapshot` — recovery data preserved
-- `test_removal_path_traversal_rejected` — security boundary
+- `test_archive_only_for_applied_rules` — user-authored rules never proposed for archival
+- `test_archive_thresholds` — below thresholds → no proposal
+- `test_archive_apply_moves_file_to_archive_dir` — file ends up in `.claude/forge/archive/`
+- `test_archive_apply_preserves_relative_path` — `.claude/rules/foo.md` → `.claude/forge/archive/rules/foo.md`
+- `test_archive_apply_handles_destination_collision` — second archival of same path gets timestamp suffix
+- `test_archive_apply_records_content_snapshot` — recovery data preserved in applied.json even if archive file is later deleted manually
+- `test_archive_path_traversal_rejected` — security boundary on source path
+- `test_archive_copy_before_delete` — interrupted run leaves source intact (no data loss)
 - `test_conflict_resolution_origin` — origin string surfaces correctly
 - `test_conflict_resolution_validates_agent_output` — malformed agent output dropped
 
-**Files changed:** `build-proposals.py`, `finalize-proposals.py`, `format-proposals.py`, `forge/agents/session-analyzer.md`, `forge/skills/forge/SKILL.md`, `.claude/rules/security.md`. Version bump required.
+**Files changed:** `build-proposals.py`, `finalize-proposals.py`, `format-proposals.py`, `forge/agents/session-analyzer.md`, `forge/skills/forge/SKILL.md`, `.claude/rules/security.md` (clarifying note only — no new exception). Version bump required.
 
 **Acceptance criteria:**
-- Removal proposals only target Forge-generated artifacts.
-- Approval requires typing the filename; no bulk removal.
+- Archive proposals only target Forge-generated artifacts.
+- Approval requires typing the filename; no bulk archival.
 - Conflict resolution proposals identify the conflicting rules by path.
-- Removed files are recoverable from `history/applied.json` content snapshots.
+- Archived files end up in `.claude/forge/archive/` preserving original relative path; original content also snapshot in `history/applied.json`.
+- An interrupted archive operation leaves the source file intact (copy completes and fsyncs before unlink).
 
 ---
 
@@ -1237,7 +1258,7 @@ The work on Designer-Noticed surfaced architectural patterns that Forge can't fu
 | 4.9 Session health analysis | ❌ P9 | Opt-in deep analysis of file access patterns → LLM-drafted rules |
 | 4.10 Synthesis boundaries | ❌ P10 | Detect-always, surface-rarely (ported from Designer-Noticed) |
 | 4.11 Window digest dedup | ❌ P11 | Per-builder content-addressed dedup (ported from Designer-Noticed) |
-| 4.12 Removal & conflict resolution kinds | ❌ P12 | New builders for proactive pruning + rule contradictions |
+| 4.12 Archive & conflict resolution kinds | ❌ P12 | Non-destructive archival of stale rules + LLM-detected rule contradictions |
 | 4.13 First-class signal events | ❌ P13 | Append-only signals.jsonl for future threshold retuning |
 | 4.14 Designer co-installation probe | ⏸ Deferred | Skip unless Designer ships a learning layer |
 
