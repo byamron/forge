@@ -37,6 +37,39 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### P10-P14 plan + native-build possibilities doc (planning only)
+**Date:** 2026-05-16
+**Branch:** daegu-v2
+**Commit:** 5aa2088 (base — planning PR, no code changes)
+
+**What was done:**
+Added five new work items (P10-P14) to `core-docs/plan.md` and created `core-docs/native-build-possibilities.md`. The plan items transfer concrete architectural patterns from Designer-Noticed (a Forge-like learning layer prototyped natively inside the Designer app at `/Users/benyamron/dev/designer`). The native doc captures patterns that cannot be transferred without owning the runtime, as a reference for any future native port.
+
+**Why:**
+Designer changed direction and will not ship Designer-Noticed in its current form. The research that went into it surfaced concrete improvements applicable to Forge today, plus a category of capabilities only possible when the learning layer is native to the host app. Both deserved to be captured before the Designer codebase becomes inaccessible or stale.
+
+**Design decisions:**
+- **Split into immediately-actionable plan items (P10-P14) vs reference doc.** Plan items are scoped to the current plugin architecture and follow the existing P<N> format. The native doc is separate because it describes capabilities Forge cannot ship as a plugin — mixing it with active priorities would clutter the roadmap.
+- **P10 ranked HIGH; P11/P12 MEDIUM; P13 LOW-MEDIUM; P14 deferred indefinitely.** Synthesis boundaries (P10) are the single biggest UX leverage point and fix a long-standing pain (notification-every-SessionStart). Window-digest dedup (P11) and new proposal kinds (P12) are incremental quality wins. Signal events (P13) unlock future P8 work but have no immediate behavior change. The co-installation probe (P14) is unneeded unless Designer ships a learning layer — kept in the plan as deferred so future contributors don't re-discover the question.
+- **No-op for P14, not deletion.** Documented and parked rather than dropped, so the reasoning survives.
+
+**Technical decisions:**
+- **P10 boundary triggers chosen to match Designer's pattern:** new high-confidence proposals, N new sessions (default 5), first-of-day per UTC date, effectiveness alerts. The first three are Designer-equivalent; the fourth is Forge-specific because Forge has effectiveness tracking that Designer doesn't.
+- **P11 digest uses SHA-1 truncated to 12 chars and includes the builder name in the input.** SHA-1 is fine for non-cryptographic dedup; 12 chars give ~10^14 collision space, well above any realistic proposal volume. Including builder name prevents semantic-but-different proposals (e.g., memory vs corrections) from collapsing.
+- **P12 removal kind requires re-typing the filename to confirm and is gated to Forge-generated artifacts only.** Two defense-in-depth layers because deletion is the riskiest possible action. Removed file contents are preserved in `applied.json` for recovery. This adds the second explicit exception to the never-delete rule in `.claude/rules/security.md`.
+- **P13 uses append-only JSONL, not SQLite.** Keeps the dependency profile to standard library only (per `.claude/rules/python-scripts.md`). Rotation at 5MB. The native build doc notes that an event-sourced runtime would standardize on SQLite-WAL or LMDB; for a plugin, JSONL is the right cost-benefit point.
+
+**Tradeoffs discussed:**
+- **Do P10 inside `check-pending.py` vs a new `surface-decision.py` script.** Chose inside `check-pending.py` to stay within the surface-area constraint from the current plan ("P0-P7 adds 1 new script, everything else modifies existing files"). Same constraint extended to P10-P13. P12 requires no new scripts; only P14 (deferred) would.
+- **Include or exclude the native-build doc from the plan PR.** Included because the doc is the natural home for "we considered building this but didn't" decisions — splitting it into a separate PR would lose the link between the rejected work and its rationale.
+- **Map removal/conflict-resolution to existing proposal types vs add new types.** Chose to reuse types (`type: "removal"` is genuinely new but slots into existing pipeline; `type: "rule"` with `origin: "conflict_resolution"` reuses the rule pipeline). Avoids schema churn and lets existing feedback calibration apply automatically.
+
+**Lessons learned:**
+- The most transferable architectural ideas from a project that doesn't ship are often the ones that decouple two concerns the constrained version had to entangle. Designer's split of detection from synthesis is valuable in Forge even without Designer's event store — the plumbing differs, the principle doesn't.
+- Native-only capabilities are still worth documenting. Future contributors deciding "should we re-platform this" need a catalog of what's possible at the other side of the boundary, otherwise the decision happens by drift rather than analysis.
+
+---
+
 ### P9 plan: Session health analysis (planning only)
 **Date:** 2026-05-10
 **Branch:** token-usage-proposals

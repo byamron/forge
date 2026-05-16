@@ -826,6 +826,334 @@ P0 validation taught that classifier accuracy alone doesn't guarantee proposal q
 
 ---
 
+### P10. Synthesis boundaries (detect-always, surface-rarely)
+**Status:** Not started
+**Priority:** HIGH — biggest single insight transferred from Designer-Noticed. Resolves a long-standing UX pain: Forge re-evaluates and re-surfaces at every SessionStart, which makes the nudge frequency setting feel meaningless and trains users to ignore the terminal notification.
+**Goal:** Split *detection* (background analysis, runs every SessionStart) from *surfacing* (terminal notification, fires only at meaningful boundaries). Proposals are always computed and cached; the notification only appears when a boundary has been crossed.
+**Impacts:** UX, trust
+
+**Origin:** Designer-Noticed splits its pipeline at a synthesis boundary — detectors fire on every event, but `AppCore::synthesize_pending()` only runs on track completion (debounced 30s) or first workspace-home view of the day per project. The result is a calmer feed where each notification reflects a genuine change in state. Forge has all the same primitives (background analysis on SessionStart, pending proposals cache, last-run cache from P2) but lacks the boundary gate.
+
+**Design:**
+
+Boundary triggers (any one fires the notification):
+1. **New high-confidence proposals appeared** since last surface — strongest signal. Compare current pending IDs to `last-surfaced.json`.
+2. **N new analyzed sessions** since last surface (default `5`) — accumulating evidence even if proposal set is unchanged.
+3. **First session per UTC day** for this project — a daily check-in cadence, mirrors Designer's "first-daily-view" trigger.
+4. **Effectiveness alert** for a previously applied artifact — already supported by P1 Step 2.
+
+If none fire, `check-pending.py` stays silent even when pending proposals exist. The user can still run `/forge` manually any time — the cached proposals are not gated, only the notification is.
+
+**Implementation plan:**
+
+#### Step 1: Boundary state tracking
+
+**New file:** `~/.claude/forge/projects/<hash>/last-surfaced.json`
+```json
+{
+  "timestamp": 1730000000,
+  "utc_date": "2026-05-16",
+  "session_count_at_surface": 23,
+  "proposal_ids": ["demote-claude-md-1", "rule-use-vitest"]
+}
+```
+
+**File:** `forge/scripts/check-pending.py`
+**Changes:**
+- Add `load_last_surfaced(user_data_dir: Path) -> Dict` — reads the file, returns empty dict if missing.
+- Add `write_last_surfaced(user_data_dir: Path, ...)` — atomic write, called only when a notification is actually emitted.
+
+#### Step 2: Boundary gate
+
+**File:** `forge/scripts/check-pending.py`
+**Changes:**
+- Add `_boundary_crossed(pending: List[Dict], last_surfaced: Dict, session_count: int, settings: Dict) -> Tuple[bool, str]` — returns `(should_surface, reason)`. Checks the four triggers in order, returns the first match. Reason string is for telemetry/debug, not user-facing.
+- In `main()`: after computing `pending_count`, call `_boundary_crossed()`. If false, suppress the proposal notification (health signal still allowed per existing nudge_level logic).
+- The deep-analysis-cache check stays in place (no notification until quality gate has run).
+
+#### Step 3: Settings
+
+**Files:** `forge/scripts/read-settings.py`, `forge/scripts/write-settings.py`, `forge/skills/settings/SKILL.md`
+**Changes:**
+- Add to `DEFAULTS`:
+  - `surface_boundary_sessions: 5` — N new sessions trigger
+  - `surface_boundary_daily: True` — first-of-day trigger on/off
+- `nudge_level: "eager"` overrides the boundary gate (always surface when proposals exist, current behavior preserved as opt-in).
+- `nudge_level: "quiet"` continues to suppress everything including boundary-triggered notifications.
+- `nudge_level: "balanced"` (default) honors the boundary gate.
+
+#### Step 4: Mark surface on `/forge` invocation
+
+**File:** `forge/skills/forge/SKILL.md`
+**Changes:**
+- After Step 1 (loading proposals), record a surface event — even if the user runs `/forge` manually, that counts as having seen the current proposal set. Prevents the next SessionStart from immediately re-surfacing the same IDs.
+- Implementation: small inline call to `check-pending.py --mark-surfaced` (new flag) or a dedicated `mark-surfaced.py` helper. Prefer the flag to avoid a new script.
+
+**Tests:** ~8-10 new tests in `test_check_pending.py`:
+- Boundary not crossed → no notification even with pending proposals
+- New high-confidence proposal → surfaces
+- N new sessions threshold → surfaces
+- First-of-day → surfaces
+- Same proposals + same day + < N sessions → silent (the new default behavior)
+- `nudge_level: "eager"` bypasses boundary gate
+- `nudge_level: "quiet"` suppresses everything
+- `mark-surfaced` flag updates the state file correctly
+- Effectiveness alert is independent of the boundary gate
+
+**Files changed:** `check-pending.py`, `read-settings.py`, `write-settings.py`, `forge/skills/settings/SKILL.md`, `forge/skills/forge/SKILL.md`. Version bump required.
+
+**Acceptance criteria:**
+- Running with no changes between SessionStarts produces zero notifications.
+- A genuinely new proposal triggers exactly one notification, not one per subsequent SessionStart.
+- The daily check-in fires once per UTC date per project.
+- Existing P1 effectiveness alerts continue to surface independently.
+
+---
+
+### P11. `window_digest` dedup across builders
+**Status:** Not started
+**Priority:** MEDIUM — incremental quality fix. Designer's per-detector window hash is cleaner than Forge's current ID-based dedup and catches "same evidence, slightly different proposal text" cases that today produce near-duplicates.
+**Goal:** Every builder attaches a `window_digest` to each proposal. The pipeline dedupes on `(builder, window_digest)` before applying the existing dismissed/applied filters.
+**Impacts:** Accuracy
+
+**Origin:** Designer's `Finding` carries `window_digest: String` — a deterministic hash over the input window for that detector version. Two findings with the same digest are silently no-ops. This avoids the class of bug where two pipeline runs produce proposals with subtly different IDs but identical underlying evidence.
+
+**Why this matters for Forge:** P0 validation found memory promotions duplicating correction-derived proposals (4× `promote-feedback-ios-build` duplicating `ios-simulator-build-rule`). The current ID-based dedup doesn't catch this because the IDs differ. A content-addressed digest does.
+
+**Design:**
+
+`_window_digest(builder_name: str, *evidence_parts: str) -> str` — SHA-1 of `builder_name | "|".join(evidence_parts)`, hex-truncated to 12 chars. Builder name is included so two builders generating semantically different proposals from the same evidence don't collide.
+
+Each builder computes the digest from its stable input — e.g., the corrections builder uses the correction theme + the most-cited evidence line; the demotion builder uses the file path + start/end line range; the memory builder uses the memory entry's content hash.
+
+**Implementation plan:**
+
+#### Step 1: Add the helper
+
+**File:** `forge/scripts/build-proposals.py`
+**Changes:**
+- Add `_window_digest(builder: str, *parts: str) -> str` near the top of the file (alongside existing helpers).
+- Standard library only (`hashlib.sha1`).
+
+#### Step 2: Attach digest in every builder
+
+For each `_build_from_*` function (demotions, gaps, repeated_prompts, corrections, memory, workflows, staleness):
+- Compute `window_digest = _window_digest(builder_name, *evidence_parts)` per proposal.
+- Set `proposal["window_digest"] = window_digest`.
+
+The choice of evidence parts is per-builder and documented in a docstring on each:
+- `demotions`: `claude_md_section_id`
+- `gaps`: `gap_type + tech_stack_signature`
+- `repeated_prompts`: `prompt_theme + sorted(top_evidence_ids)`
+- `corrections`: `correction_theme + sorted(top_evidence_ids)`
+- `memory`: `entry_path + sha1(entry_content)[:8]`
+- `workflows`: `sorted(tool_sequence)`
+- `staleness`: `artifact_path`
+
+#### Step 3: Dedup in `build_proposals()`
+
+**File:** `forge/scripts/build-proposals.py` `build_proposals()` (line 1406)
+**Changes:**
+- Build `seen_digests: Set[str]` while iterating.
+- If `p["window_digest"]` already in `seen_digests`, skip with a debug stderr line.
+- Apply this filter *before* the existing `dismissed_ids` / `applied_ids` filters (faster; also dedup must be deterministic regardless of feedback state).
+
+#### Step 4: Persist digest in dismissed and applied records
+
+**File:** `forge/scripts/finalize-proposals.py`
+**Changes:**
+- When writing `dismissed.json` and `history/applied.json`, include `window_digest` on each entry.
+- This unblocks a future change: dedup against dismissed/applied by digest rather than ID, so renaming a proposal doesn't bypass dismissal. Not in scope for P11 — just record the field now so historical data is usable later.
+
+**Tests:** ~4-6 new tests in `test_build_proposals.py`:
+- Same evidence in two builders → different digests (builder name disambiguates)
+- Same evidence in two runs → same digest (deterministic)
+- Two builders produce the same proposal kind from the same evidence → second one filtered
+- Memory promotion + correction proposal targeting the same theme → digests differ (different builder names, different evidence parts) — confirms this is a separate problem, not solved by P11 alone (motivates P12-adjacent cleanup if data shows this is still common after P10/P11 ship)
+
+**Files changed:** `build-proposals.py`, `finalize-proposals.py`. Version bump required.
+
+**Acceptance criteria:**
+- All proposals in `pending.json` have a `window_digest` field.
+- Re-running `/forge` produces the same digests for unchanged evidence.
+- Synthetic test profile that produces duplicate workflow proposals (today) produces one after P11.
+
+---
+
+### P12. New proposal kinds: removal & conflict-resolution
+**Status:** Not started
+**Priority:** MEDIUM — fills two real gaps in Forge's proposal taxonomy that Designer-Noticed exposed.
+**Goal:** Two new builders covering pruning (`RemovalCandidate`) and contradiction detection (`ConflictResolution`). Both reuse existing proposal types where possible — no new types in the schema, just new origins.
+**Impacts:** Accuracy, completeness
+
+**Origin:** Designer's `ProposalKind` enum includes `RemovalCandidate`, `Demotion`, and `ConflictResolution`. Forge today has demotion only — and demotion fires only when CLAUDE.md is over-budget. Stale rules with low reference rate get *flagged* (staleness builder) but never proactively *removed*. And no builder detects when two rules contradict each other.
+
+**Design:**
+
+These are two independent builders that ship together for narrative cohesion. Either can be deferred individually.
+
+**A. Removal candidate builder**
+
+Today: `_build_from_staleness()` produces a "this rule is stale" notice but no removal proposal — the user has to act manually. Result: stale rules accumulate.
+
+Change: when a rule meets stricter thresholds (reference ratio < 0.10 AND sessions_analyzed ≥ 10 AND age ≥ 30 days), emit a `type: "removal"` proposal with full `suggested_path` and the existing rule content as `current_content` (so the user sees what's being removed). Status: `pending`; on approve, `finalize-proposals.py` deletes the file (this is one of the two exceptions to the never-delete rule — must be added to `.claude/rules/security.md` with explicit gating).
+
+Gating:
+- Only files Forge generated (must appear in `history/applied.json`). Forge never proposes removal of user-authored content.
+- User confirmation requires typing the rule filename — defense-in-depth against accidental approval. Implemented in `forge/skills/forge/SKILL.md` Step where removals are presented.
+
+**B. Conflict resolution builder**
+
+New builder `_build_from_conflicts(config: Dict, transcripts: Dict) -> List[Dict]`. Detects:
+- Two rules with overlapping `paths` frontmatter that contain contradictory directives (LLM judgment required — runs as a small sub-task of the session-analyzer agent, not in Phase A).
+- A CLAUDE.md entry contradicted by a more recent correction theme (e.g., CLAUDE.md says "use jest" but corrections show user always changes jest → vitest).
+
+Output: `type: "rule"` proposal with `origin: "conflict_resolution"` and an explicit `resolves_conflict_between: [path1, path2]` field. The proposed rule synthesizes a single consistent directive; applying it doesn't auto-delete the conflicting rule, but the proposal description surfaces "Applying this also recommends removing/editing X".
+
+**Implementation plan:**
+
+#### Step 1: Removal candidate builder
+
+**File:** `forge/scripts/build-proposals.py`
+**Changes:**
+- Add `_build_from_removals(config: Dict, transcripts: Dict, applied_history: List[Dict]) -> List[Dict]`.
+- Threshold constants at top of file: `REMOVAL_REF_RATIO_MAX = 0.10`, `REMOVAL_MIN_SESSIONS = 10`, `REMOVAL_MIN_AGE_DAYS = 30`.
+- Gate: only rules with `id` matching an entry in `applied_history`.
+- Register in `build_proposals()` after the staleness builder.
+
+**File:** `forge/scripts/finalize-proposals.py`
+**Changes:**
+- Handle `type: "removal"` in the apply path: validate the path is within `.claude/`, validate it appears in `applied_history`, then `Path.unlink()`.
+- Record removal in `history/applied.json` with `action: "removed"` and original content snapshot in the record (for audit/recovery).
+
+**File:** `forge/skills/forge/SKILL.md`
+**Changes:**
+- New section for removal proposals: show full content preview, require confirmation step. Don't bundle removals with other proposals in the same AskUserQuestion — present one at a time.
+
+**File:** `.claude/rules/security.md`
+**Changes:**
+- Add removal proposals as the second explicit deletion exception (alongside the existing legacy `.claude/commands/*.md` migration).
+- Document the gating rules: Forge-generated only, user re-confirms by typing filename, full content preserved in applied history.
+
+#### Step 2: Conflict resolution builder
+
+**File:** `forge/agents/session-analyzer.md`
+**Changes:**
+- Add a new task block to the prompt: "Detect contradictions between rules (overlapping `paths`, opposite directives) and between CLAUDE.md and recent correction themes. Output as proposals with `origin: 'conflict_resolution'`."
+- This piggybacks on the existing deep-analysis LLM pass — no new LLM invocation.
+
+**File:** `forge/scripts/build-proposals.py`
+**Changes:**
+- Add `_build_from_conflicts()` that reads the agent's output (already cached in `deep-analysis.json`), validates the structure, and emits proposals with `origin: "conflict_resolution"` and `resolves_conflict_between` metadata.
+
+**File:** `forge/scripts/format-proposals.py`
+**Changes:**
+- New origin string for `conflict_resolution`: "contradiction with existing rule".
+- When `resolves_conflict_between` is present, show "Applying this resolves a conflict with: X, Y" in the proposal description.
+
+**Tests:** ~10-15 new tests:
+- `test_removal_only_for_applied_rules` — user-authored rules never proposed for removal
+- `test_removal_thresholds` — below thresholds → no proposal
+- `test_removal_apply_unlinks_file` — file actually removed on approve
+- `test_removal_apply_records_content_snapshot` — recovery data preserved
+- `test_removal_path_traversal_rejected` — security boundary
+- `test_conflict_resolution_origin` — origin string surfaces correctly
+- `test_conflict_resolution_validates_agent_output` — malformed agent output dropped
+
+**Files changed:** `build-proposals.py`, `finalize-proposals.py`, `format-proposals.py`, `forge/agents/session-analyzer.md`, `forge/skills/forge/SKILL.md`, `.claude/rules/security.md`. Version bump required.
+
+**Acceptance criteria:**
+- Removal proposals only target Forge-generated artifacts.
+- Approval requires typing the filename; no bulk removal.
+- Conflict resolution proposals identify the conflicting rules by path.
+- Removed files are recoverable from `history/applied.json` content snapshots.
+
+---
+
+### P13. First-class signal events for threshold retuning
+**Status:** Not started
+**Priority:** LOW-MEDIUM — no immediate behavior change, but unlocks future threshold tuning (P8) and acceptance-rate analysis. Cheap to ship.
+**Goal:** Add a lightweight append-only signal log (`signals.jsonl`) capturing every user interaction with a proposal (approve, dismiss with reason, skip, snooze, modify). Existing aggregate `feedback_signals.json` is preserved for backward compat; the new log gives per-event detail.
+**Impacts:** Future accuracy, telemetry
+
+**Origin:** Designer logs `FindingSignaled`, `ProposalSignaled`, and `ProposalResolved` as separate events with `(timestamp, finding_id, signal_type, reason)` tuples. Phase B reads the event stream to retune detector thresholds. Forge's `feedback_signals.json` is aggregate — useful for the safety gate but loses the per-event detail needed to answer "did this category's acceptance rate improve after we shipped X?".
+
+**Design:**
+
+**New file:** `.claude/forge/signals.jsonl` (project-level, git-tracked alongside other feedback data).
+
+One JSON object per line:
+```json
+{"ts": 1730000000, "proposal_id": "rule-use-vitest", "window_digest": "abc123def456", "builder": "corrections", "type": "rule", "category": "rule", "signal": "approved", "modification": null}
+{"ts": 1730000100, "proposal_id": "demote-claude-md-1", "window_digest": "...", "builder": "demotions", "type": "demotion", "category": "demotion", "signal": "dismissed", "reason": "low_impact"}
+{"ts": 1730000200, "proposal_id": "agent-read-write-run", "window_digest": "...", "builder": "workflows", "type": "agent", "category": "agent", "signal": "skipped"}
+```
+
+Append-only. Never rewrites. File size cap: rotate to `signals.<n>.jsonl` at 5MB (uncompressed JSONL is small per event — this holds ~50k+ events).
+
+**Implementation plan:**
+
+#### Step 1: Append helper
+
+**File:** `forge/scripts/finalize-proposals.py`
+**Changes:**
+- Add `_append_signal(project_root: Path, proposal: Dict, signal: str, reason: Optional[str] = None, modification: Optional[str] = None) -> None`.
+- Atomic append: `open(..., "a")` with explicit `flush()`. JSONL doesn't need full atomicity since each line is self-contained.
+- Path: `get_project_data_dir(project_root) / "signals.jsonl"`.
+
+#### Step 2: Wire into outcome processing
+
+**File:** `forge/scripts/finalize-proposals.py`
+**Changes:**
+- In the outcome loop where `_update_feedback_signals` is called, also call `_append_signal()` per outcome.
+- Pass through `window_digest` (now present from P11) so the log entry is content-addressable.
+
+#### Step 3: Rotation
+
+**File:** `forge/scripts/finalize-proposals.py`
+**Changes:**
+- Before appending, check file size. If > 5MB, rename to `signals.<utc_date>.jsonl` and start a new file.
+
+#### Step 4: Read helper (for future P8 use)
+
+**File:** `forge/scripts/build-proposals.py`
+**Changes:**
+- Add `_load_recent_signals(project_root: Path, days: int = 90) -> List[Dict]` — reads `signals.jsonl` and any rotated files within the time window. Returns flat list.
+- Not used in P13 itself. Adds the read path so P8 (context-aware confidence scoring) can consume it without further plumbing.
+
+**Tests:** ~4-6 new tests in `test_finalize_proposals.py`:
+- `test_signal_append_writes_jsonl` — file exists, each line is valid JSON
+- `test_signal_includes_window_digest` — digest present
+- `test_signal_rotation_at_5mb` — rotation triggers, new file empty
+- `test_load_recent_signals_filters_by_age` — read helper respects window
+- `test_signal_append_atomic_under_concurrent_writes` — two finalizers don't corrupt the log
+
+**Files changed:** `finalize-proposals.py`, `build-proposals.py`. No version bump beyond what P10-P12 already required.
+
+**Acceptance criteria:**
+- Every proposal interaction produces exactly one line in `signals.jsonl`.
+- The aggregate `feedback_signals.json` continues to be written (no behavior regression).
+- `_load_recent_signals()` returns parseable data ready for P8 consumption.
+
+---
+
+### P14. Designer co-installation probe (defensive)
+**Status:** Deferred indefinitely (Designer is not shipping in its current form per 2026-05-16 direction change)
+**Priority:** SKIP unless Designer ships a learning layer that overlaps with Forge's detectors.
+**Goal:** When Designer is installed and emitting findings for overlapping detectors, Forge defers to avoid double-surfacing.
+
+**Origin:** Designer-Noticed includes a Forge probe (`if ~/.claude/plugins/forge/ exists, disable overlapping detectors`). Symmetric: Forge could probe for Designer. Not worth implementing speculatively.
+
+If revisited: probe `~/.designer/` or whatever Designer's install path becomes, read its detector manifest, suppress matching Forge builders for that project. ~20 LOC + 3 tests.
+
+---
+
+## Native Build Possibilities
+
+The work on Designer-Noticed surfaced architectural patterns that Forge can't fully adopt as a plugin but should consider if Forge ever moves into a native runtime. These possibilities and migration considerations are documented in `core-docs/native-build-possibilities.md`.
+
+---
+
 ## Completed Work Items (archived)
 
 <details>
@@ -907,6 +1235,11 @@ P0 validation taught that classifier accuracy alone doesn't guarantee proposal q
 | 4.7 Deep analysis e2e | ❌ P7 | Verify --deep works end-to-end |
 | 4.8 Context-aware confidence | ❌ P8 | Confidence scoring accounts for context pressure |
 | 4.9 Session health analysis | ❌ P9 | Opt-in deep analysis of file access patterns → LLM-drafted rules |
+| 4.10 Synthesis boundaries | ❌ P10 | Detect-always, surface-rarely (ported from Designer-Noticed) |
+| 4.11 Window digest dedup | ❌ P11 | Per-builder content-addressed dedup (ported from Designer-Noticed) |
+| 4.12 Removal & conflict resolution kinds | ❌ P12 | New builders for proactive pruning + rule contradictions |
+| 4.13 First-class signal events | ❌ P13 | Append-only signals.jsonl for future threshold retuning |
+| 4.14 Designer co-installation probe | ⏸ Deferred | Skip unless Designer ships a learning layer |
 
 ### Phase 5: Advanced (v1.0) — Not started
 
