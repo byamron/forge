@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate proposed artifact paths against Forge's security constraints.
+"""Validate proposed artifact paths against Noticed's security constraints.
 
 Reads a JSON array of proposal objects from stdin, validates each path,
 and outputs results as JSON to stdout.
@@ -11,7 +11,8 @@ Allowed write locations (all relative to project root):
 - .claude/agents/**
 - .claude/references/**
 - .claude/settings.json
-- .claude/forge/**
+- .claude/noticed/**
+- .claude/forge/**  (legacy, pre-rename — accepted for migration only)
 
 Usage:
     echo '[{"id": "p1", "suggested_path": ".claude/rules/lint.md"}]' | python3 validate-paths.py
@@ -28,7 +29,8 @@ ALLOWED_PREFIXES = [
     ".claude/skills/",
     ".claude/agents/",
     ".claude/references/",
-    ".claude/forge/",
+    ".claude/noticed/",
+    ".claude/forge/",  # legacy, retained for migration compatibility
 ]
 
 ALLOWED_EXACT = [
@@ -38,7 +40,7 @@ ALLOWED_EXACT = [
 
 
 def validate_path(suggested_path: str) -> Dict[str, Any]:
-    """Validate a single path against Forge's write boundary."""
+    """Validate a single path against Noticed's write boundary."""
     if not isinstance(suggested_path, str) or not suggested_path.strip():
         return {"valid": False, "reason": "Path is empty or not a string"}
 
@@ -67,7 +69,7 @@ def validate_path(suggested_path: str) -> Dict[str, Any]:
     return {
         "valid": False,
         "reason": "Path is outside allowed locations (.claude/rules/, .claude/skills/, "
-                  ".claude/agents/, .claude/references/, .claude/forge/, "
+                  ".claude/agents/, .claude/references/, .claude/noticed/, "
                   ".claude/settings.json, CLAUDE.md)",
     }
 

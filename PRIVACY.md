@@ -1,33 +1,33 @@
-# Forge Privacy Policy
+# Noticed Privacy Policy
 
-Forge is a Claude Code plugin that analyzes your local Claude Code usage to suggest configuration improvements. This document explains exactly what data Forge reads, creates, and stores.
+Noticed is a Claude Code plugin that analyzes your local Claude Code usage to suggest configuration improvements. This document explains exactly what data Noticed reads, creates, and stores.
 
-## What Forge reads
+## What Noticed reads
 
-Forge reads data that Claude Code already stores on your machine. It does not create, collect, or transmit any data beyond what is described below.
+Noticed reads data that Claude Code already stores on your machine. It does not create, collect, or transmit any data beyond what is described below.
 
 ### Session transcripts
 
 - **Location:** `~/.claude/projects/<project-dir>/*.jsonl`
 - **What's in them:** Your conversation history with Claude Code — prompts, responses, tool calls, and file edits.
-- **How Forge uses them:** The transcript analyzer scans for repeated patterns (corrections you give Claude, commands you run after edits, similar opening prompts across sessions). This runs locally as a Python script with zero data sent to any external service.
-- **Cross-worktree aggregation:** Forge matches transcripts across multiple checkouts and worktrees of the same git repository. It does this by checking git remote URLs and matching `~/.claude/projects/` directory name prefixes. This means if you work on the same repo from 50 different worktrees, Forge sees all 50 session histories as one dataset for pattern detection.
+- **How Noticed uses them:** The transcript analyzer scans for repeated patterns (corrections you give Claude, commands you run after edits, similar opening prompts across sessions). This runs locally as a Python script with zero data sent to any external service.
+- **Cross-worktree aggregation:** Noticed matches transcripts across multiple checkouts and worktrees of the same git repository. It does this by checking git remote URLs and matching `~/.claude/projects/` directory name prefixes. This means if you work on the same repo from 50 different worktrees, Noticed sees all 50 session histories as one dataset for pattern detection.
 
 ### Project configuration
 
 - **Location:** `CLAUDE.md`, `.claude/rules/`, `.claude/settings.json`, `hooks.json` in your project directory.
-- **How Forge uses them:** The config auditor checks for missing hooks, misplaced instructions, and tier placement issues. Read-only — Forge never modifies these files without your explicit approval via `/forge`.
+- **How Noticed uses them:** The config auditor checks for missing hooks, misplaced instructions, and tier placement issues. Read-only — Noticed never modifies these files without your explicit approval via `/noticed`.
 
 ### Auto-memory
 
 - **Location:** `~/.claude/projects/<project-dir>/memory/` files.
-- **How Forge uses them:** The memory auditor classifies entries and suggests which ones should be promoted to proper Claude Code artifacts (rules, skills, hooks). Read-only.
+- **How Noticed uses them:** The memory auditor classifies entries and suggests which ones should be promoted to proper Claude Code artifacts (rules, skills, hooks). Read-only.
 
-## What Forge creates
+## What Noticed creates
 
 ### Repo index (cross-worktree discovery)
 
-- **Location:** `~/.claude/forge/repo-index.json`
+- **Location:** `~/.claude/noticed/repo-index.json`
 - **What's in it:** A mapping from git remote URLs to Claude Code project directory names. Example:
   ```json
   {
@@ -43,59 +43,59 @@ Forge reads data that Claude Code already stores on your machine. It does not cr
 
 ### Session log
 
-- **Location:** `<project>/.claude/forge/unanalyzed-sessions.log`
+- **Location:** `<project>/.claude/noticed/unanalyzed-sessions.log`
 - **What's in it:** Timestamps and session IDs for sessions that haven't been analyzed yet. Example:
   ```
   2026-03-26T18:30:00Z abc12345-def6-7890-ghij-klmnopqrstuv
   ```
-- **Why it exists:** Tracks which sessions are new since the last `/forge` run so the plugin can nudge you about pending findings.
-- **Scope:** Per-project. Gitignored (lives in `.claude/forge/` which is in `.gitignore`).
+- **Why it exists:** Tracks which sessions are new since the last `/noticed` run so the plugin can nudge you about pending findings.
+- **Scope:** Per-project. Gitignored (lives in `.claude/noticed/` which is in `.gitignore`).
 
 ### Settings
 
-- **Location:** `<project>/.claude/forge/settings.json`
+- **Location:** `<project>/.claude/noticed/settings.json`
 - **What's in it:** User preferences for nudge frequency (`quiet`, `balanced`, `eager`) and analysis depth (`standard`, `deep`).
 - **Scope:** Per-project. Gitignored.
 
 ### Analysis proposals
 
-- **Location:** `<project>/.claude/forge/proposals/`, `<project>/.claude/forge/history.json`, `<project>/.claude/forge/dismissed.json`
-- **What's in them:** Suggested configuration changes (rules, hooks, skills) generated by Forge, plus a record of which proposals you've accepted or dismissed.
+- **Location:** `<project>/.claude/noticed/proposals/`, `<project>/.claude/noticed/history.json`, `<project>/.claude/noticed/dismissed.json`
+- **What's in them:** Suggested configuration changes (rules, hooks, skills) generated by Noticed, plus a record of which proposals you've accepted or dismissed.
 - **Scope:** Per-project. Gitignored.
 
 ### Analyzer feedback stats
 
-- **Location:** `~/.claude/forge/analyzer-stats.json`
+- **Location:** `~/.claude/noticed/analyzer-stats.json`
 - **What's in it:** Aggregate counts of how many proposals were approved, dismissed, or suppressed per category. Used to adjust confidence thresholds over time (fewer false positives → lower threshold, more false positives → higher threshold). Also tracks permanently suppressed theme hashes so they are never re-proposed.
 - **Scope:** Global. No project-specific content — only counts and hashes.
 
-## What Forge does NOT do
+## What Noticed does NOT do
 
 - **No network requests.** All analysis runs locally. Phase A scripts are pure Python (standard library only). Phase B uses Claude Code's own LLM session — no separate API calls.
-- **No telemetry.** Forge does not collect usage statistics, error reports, or analytics.
-- **No data exfiltration.** Forge never reads, copies, or references data from other projects. Cross-worktree aggregation only links directories that share the same git remote URL.
+- **No telemetry.** Noticed does not collect usage statistics, error reports, or analytics.
+- **No data exfiltration.** Noticed never reads, copies, or references data from other projects. Cross-worktree aggregation only links directories that share the same git remote URL.
 - **No credential storage.** Credentials are actively stripped from URLs before any data is written to disk.
-- **No modifications without consent.** Forge only writes to your project's `.claude/` directory when you explicitly approve a proposal via `/forge`. The only automatic writes are the session log and repo index (described above).
+- **No modifications without consent.** Noticed only writes to your project's `.claude/` directory when you explicitly approve a proposal via `/noticed`. The only automatic writes are the session log and repo index (described above).
 
 ## Data lifecycle
 
 | Data | Created by | Persists | Deletable by |
 |------|-----------|----------|-------------|
-| Repo index | SessionEnd hook | Until manually deleted | `rm ~/.claude/forge/repo-index.json` |
-| Session log | SessionEnd hook | Until manually deleted | `rm <project>/.claude/forge/unanalyzed-sessions.log` |
-| Settings | `/forge:settings` | Until manually deleted | `rm <project>/.claude/forge/settings.json` |
-| Proposals | `/forge` | Until accepted/dismissed | `rm -r <project>/.claude/forge/proposals/` |
-| History | `/forge` | Indefinitely | `rm <project>/.claude/forge/history.json` |
-| Analyzer stats | `/forge` | Until manually deleted | `rm ~/.claude/forge/analyzer-stats.json` |
+| Repo index | SessionEnd hook | Until manually deleted | `rm ~/.claude/noticed/repo-index.json` |
+| Session log | SessionEnd hook | Until manually deleted | `rm <project>/.claude/noticed/unanalyzed-sessions.log` |
+| Settings | `/noticed:settings` | Until manually deleted | `rm <project>/.claude/noticed/settings.json` |
+| Proposals | `/noticed` | Until accepted/dismissed | `rm -r <project>/.claude/noticed/proposals/` |
+| History | `/noticed` | Indefinitely | `rm <project>/.claude/noticed/history.json` |
+| Analyzer stats | `/noticed` | Until manually deleted | `rm ~/.claude/noticed/analyzer-stats.json` |
 
-To remove all Forge-created data from your machine:
+To remove all Noticed-created data from your machine:
 
 ```sh
 # Remove global index
-rm -rf ~/.claude/forge/
+rm -rf ~/.claude/noticed/
 
 # Remove per-project state (run from each project root)
-rm -rf .claude/forge/
+rm -rf .claude/noticed/
 ```
 
-This does not affect your Claude Code configuration, transcripts, or memory — only Forge's own runtime state.
+This does not affect your Claude Code configuration, transcripts, or memory — only Noticed's own runtime state.

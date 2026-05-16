@@ -1,6 +1,6 @@
-# Forge — Test Plan
+# Noticed — Test Plan
 
-Structured testing for the Forge plugin. Run these against real projects with session history.
+Structured testing for the Noticed plugin. Run these against real projects with session history.
 
 ## Prerequisites
 
@@ -16,17 +16,17 @@ Structured testing for the Forge plugin. Run these against real projects with se
 
 1. In Claude Code, run `/plugins`
 2. Add `https://github.com/byamron/forge.git` as a marketplace source
-3. Install the Forge plugin
+3. Install the Noticed plugin
 4. Restart the session or run `/reload-plugins`
 
 **Verify:**
 - [ ] Plugin loads without errors
-- [ ] `/forge`, `/forge:settings`, `/forge:version` appear as available commands
+- [ ] `/noticed`, `/noticed:settings`, `/noticed:version` appear as available commands
 
 ### 1b. Local development install
 
 ```bash
-claude --plugin-dir ./forge
+claude --plugin-dir ./noticed
 ```
 
 **Verify:**
@@ -36,25 +36,25 @@ claude --plugin-dir ./forge
 
 ### 1c. Version verification
 
-Run `/forge:version`.
+Run `/noticed:version`.
 
 **Verify:**
 - [ ] Shows correct version (0.1.0)
-- [ ] Shows FORGE_ROOT path
+- [ ] Shows NOTICED_ROOT path
 - [ ] For marketplace installs: shows git SHA and last updated timestamp
 - [ ] For local dev: notes it's running from a local copy
 - [ ] Freshness guidance is accurate
 
 ---
 
-## 2. Core pipeline (`/forge`)
+## 2. Core pipeline (`/noticed`)
 
-### 2a. First run — no prior Forge state
+### 2a. First run — no prior Noticed state
 
-Run `/forge` on a project that has session history but has never used Forge before (no `.claude/forge/` directory).
+Run `/noticed` on a project that has session history but has never used Noticed before (no `.claude/noticed/` directory).
 
 **Verify:**
-- [ ] FORGE_ROOT resolves correctly
+- [ ] NOTICED_ROOT resolves correctly
 - [ ] Scripts run without errors (check stderr for Python tracebacks)
 - [ ] Context health table displays with correct values
 - [ ] Proposals are presented (if patterns exist in session history)
@@ -79,7 +79,7 @@ Select "Approve" on a proposal.
 Skip one proposal, dismiss another with "Never".
 
 **Verify:**
-- [ ] Skipped proposal appears on next `/forge` run
+- [ ] Skipped proposal appears on next `/noticed` run
 - [ ] Dismissed proposal never appears again
 - [ ] `dismissed.json` contains the dismissed proposal ID
 
@@ -94,7 +94,7 @@ Select "Modify" on a proposal and request a change.
 
 ### 2e. Cached re-run
 
-Run `/forge` again immediately after a previous run.
+Run `/noticed` again immediately after a previous run.
 
 **Verify:**
 - [ ] Results appear instantly (cached, no re-analysis)
@@ -104,7 +104,7 @@ Run `/forge` again immediately after a previous run.
 
 ### 2f. No proposals scenario
 
-Run `/forge` on a project with a well-configured `.claude/` and minimal session history.
+Run `/noticed` on a project with a well-configured `.claude/` and minimal session history.
 
 **Verify:**
 - [ ] Context health table still displays
@@ -113,11 +113,11 @@ Run `/forge` on a project with a well-configured `.claude/` and minimal session 
 
 ---
 
-## 3. Deep analysis (`/forge --deep`)
+## 3. Deep analysis (`/noticed --deep`)
 
 ### 3a. Deep mode invocation
 
-Run `/forge --deep`.
+Run `/noticed --deep`.
 
 **Verify:**
 - [ ] Context health table appears immediately (not blocked on LLM)
@@ -129,7 +129,7 @@ Run `/forge --deep`.
 
 ### 3b. Quick mode override
 
-Run `/forge --quick`.
+Run `/noticed --quick`.
 
 **Verify:**
 - [ ] Only script proposals shown (no background agent spawned)
@@ -137,14 +137,14 @@ Run `/forge --quick`.
 
 ---
 
-## 4. Settings (`/forge:settings`)
+## 4. Settings (`/noticed:settings`)
 
 ### 4a. Read current settings
 
-Run `/forge:settings`.
+Run `/noticed:settings`.
 
 **Verify:**
-- [ ] FORGE_ROOT resolves (tests the fix from PR #10)
+- [ ] NOTICED_ROOT resolves (tests the fix from PR #10)
 - [ ] Current nudge level and analysis depth are displayed
 - [ ] Option tables render correctly
 
@@ -153,9 +153,9 @@ Run `/forge:settings`.
 Say "set to quiet" or "eager".
 
 **Verify:**
-- [ ] `.claude/forge/settings.json` is created/updated
+- [ ] `.claude/noticed/settings.json` is created/updated
 - [ ] Confirmation message shows what changed
-- [ ] Next `/forge:settings` run reflects the new value
+- [ ] Next `/noticed:settings` run reflects the new value
 
 ### 4c. Change analysis depth
 
@@ -163,7 +163,7 @@ Say "turn on deep analysis".
 
 **Verify:**
 - [ ] Setting written correctly
-- [ ] Next `/forge` (no flags) uses deep mode
+- [ ] Next `/noticed` (no flags) uses deep mode
 
 ---
 
@@ -174,8 +174,8 @@ Say "turn on deep analysis".
 End a session normally (type `/exit` or close the terminal).
 
 **Verify:**
-- [ ] `.claude/forge/unanalyzed-sessions.log` is created/updated with the session
-- [ ] `~/.claude/forge/repo-index.json` contains the current project's remote URL
+- [ ] `.claude/noticed/unanalyzed-sessions.log` is created/updated with the session
+- [ ] `~/.claude/noticed/repo-index.json` contains the current project's remote URL
 - [ ] No credential leakage in the repo-index (check for tokens in URLs)
 - [ ] Cache is updated (`cache-manager.py --update` ran)
 
@@ -196,7 +196,7 @@ Run these individually from the repo root to isolate failures.
 ### 6a. Config audit
 
 ```bash
-python3 forge/scripts/analyze-config.py
+python3 noticed/scripts/analyze-config.py
 ```
 
 **Verify:**
@@ -208,7 +208,7 @@ python3 forge/scripts/analyze-config.py
 ### 6b. Transcript analysis
 
 ```bash
-python3 forge/scripts/analyze-transcripts.py --project-root "$(pwd)"
+python3 noticed/scripts/analyze-transcripts.py --project-root "$(pwd)"
 ```
 
 **Verify:**
@@ -221,7 +221,7 @@ python3 forge/scripts/analyze-transcripts.py --project-root "$(pwd)"
 ### 6c. Memory audit
 
 ```bash
-python3 forge/scripts/analyze-memory.py
+python3 noticed/scripts/analyze-memory.py
 ```
 
 **Verify:**
@@ -232,19 +232,19 @@ python3 forge/scripts/analyze-memory.py
 ### 6d. Cache manager
 
 ```bash
-python3 forge/scripts/cache-manager.py --check --plugin-root ./forge
-python3 forge/scripts/cache-manager.py --proposals --plugin-root ./forge
+python3 noticed/scripts/cache-manager.py --check --plugin-root ./noticed
+python3 noticed/scripts/cache-manager.py --proposals --plugin-root ./noticed
 ```
 
 **Verify:**
 - [ ] `--check` reports which analyses are stale
 - [ ] `--proposals` returns merged proposals with context health
-- [ ] Cache files written to `.claude/forge/cache/`
+- [ ] Cache files written to `.claude/noticed/cache/`
 
 ### 6e. Build proposals
 
 ```bash
-python3 forge/scripts/build-proposals.py --plugin-root ./forge
+python3 noticed/scripts/build-proposals.py --plugin-root ./noticed
 ```
 
 **Verify:**
@@ -258,7 +258,7 @@ python3 forge/scripts/build-proposals.py --plugin-root ./forge
 
 ### 7a. Path validation
 
-During `/forge`, if a proposal has a suspicious `suggested_path`:
+During `/noticed`, if a proposal has a suspicious `suggested_path`:
 
 **Verify:**
 - [ ] Paths with `..` are rejected
@@ -268,7 +268,7 @@ During `/forge`, if a proposal has a suspicious `suggested_path`:
 
 ### 7b. Agent isolation
 
-Run `/forge --deep` and check agent behavior:
+Run `/noticed --deep` and check agent behavior:
 
 **Verify:**
 - [ ] `session-analyzer` cannot write files (disallowedTools: Write, Edit, Bash)
@@ -276,7 +276,7 @@ Run `/forge --deep` and check agent behavior:
 
 ### 7c. Data isolation
 
-Run `/forge` on project A, then on project B:
+Run `/noticed` on project A, then on project B:
 
 **Verify:**
 - [ ] Project A's proposals contain no references to project B's files or patterns
@@ -288,7 +288,7 @@ Run `/forge` on project A, then on project B:
 
 ### 8a. No session history
 
-Run `/forge` on a brand-new project with zero sessions.
+Run `/noticed` on a brand-new project with zero sessions.
 
 **Verify:**
 - [ ] Config audit still runs and produces useful output
@@ -297,7 +297,7 @@ Run `/forge` on a brand-new project with zero sessions.
 
 ### 8b. No `.claude/` directory
 
-Run `/forge` on a project with no existing Claude Code config.
+Run `/noticed` on a project with no existing Claude Code config.
 
 **Verify:**
 - [ ] Config audit reports the gap

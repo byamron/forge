@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Review scoring diagnostics from a cached /forge analysis.
+"""Review scoring diagnostics from a cached /noticed analysis.
 
 Reads the transcript analysis cache and presents:
 - All detected correction themes with weighted scores and confidence
@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import importlib
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "forge" / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "noticed" / "scripts"))
 _pi = importlib.import_module("project_identity")
 resolve_user_file = _pi.resolve_user_file
 
@@ -53,7 +53,7 @@ def review(project_root: Path, show_sensitivity: bool = False) -> None:
     data = load_cached_analysis(project_root)
     if data is None:
         print("No cached transcript analysis found.", file=sys.stderr)
-        print("Run `/forge` first to generate analysis data.", file=sys.stderr)
+        print("Run `/noticed` first to generate analysis data.", file=sys.stderr)
         sys.exit(1)
 
     out = sys.stdout

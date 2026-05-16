@@ -37,19 +37,19 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 **Date:** 2026-04-01
 **Source:** user direction
 
-**What was said:** User reported that in their portfolio site project, Forge proposals don't reach a high enough threshold (impact is exaggerated) and automation proposals skip important steps like human approval. Rejecting these proposals had no effect — similar proposals kept appearing because Forge only recorded the exact ID, not the reason for rejection.
+**What was said:** User reported that in their portfolio site project, Noticed proposals don't reach a high enough threshold (impact is exaggerated) and automation proposals skip important steps like human approval. Rejecting these proposals had no effect — similar proposals kept appearing because Noticed only recorded the exact ID, not the reason for rejection.
 
-**Synthesized rule:** Forge must learn from *why* proposals are rejected, not just *that* they were. Dismissal reasons, modification patterns, and conversation signals should feed back into proposal generation to improve quality over time. Automation proposals (hooks, agents) need special scrutiny for human-in-the-loop steps.
+**Synthesized rule:** Noticed must learn from *why* proposals are rejected, not just *that* they were. Dismissal reasons, modification patterns, and conversation signals should feed back into proposal generation to improve quality over time. Automation proposals (hooks, agents) need special scrutiny for human-in-the-loop steps.
 
 **Applies to:** proposal pipeline, impact scoring, artifact generation, SKILL.md review flow
 
-### FB-0002: Forge should feel like a living system, not a manual tool
+### FB-0002: Noticed should feel like a living system, not a manual tool
 **Date:** 2026-04-03
 **Source:** user direction
 
-**What was said:** User doesn't know if Forge is working. Unclear whether to run `/forge` every session or wait. The session-start nudge (systemMessage) is too quiet — Claude may ignore it. User wants Forge framed as "agentic AI documentation as a living body" — always watching, always proposing when infrastructure can be improved. The current experience feels manual despite background hooks running every session.
+**What was said:** User doesn't know if Noticed is working. Unclear whether to run `/noticed` every session or wait. The session-start nudge (systemMessage) is too quiet — Claude may ignore it. User wants Noticed framed as "agentic AI documentation as a living body" — always watching, always proposing when infrastructure can be improved. The current experience feels manual despite background hooks running every session.
 
-**Synthesized rule:** Forge's proactive behavior must be visible and self-explanatory. Users should never wonder "is this thing doing anything?" The ambient signals (session-start nudge, background analysis, effectiveness tracking) exist in the data layer but aren't surfaced assertively enough. High-confidence findings should be presented proactively, not gated behind a manual `/forge` invocation. The product framing should communicate that Forge accumulates value over time — more sessions = better proposals — and that the user reviews on their schedule, not on a cadence.
+**Synthesized rule:** Noticed's proactive behavior must be visible and self-explanatory. Users should never wonder "is this thing doing anything?" The ambient signals (session-start nudge, background analysis, effectiveness tracking) exist in the data layer but aren't surfaced assertively enough. High-confidence findings should be presented proactively, not gated behind a manual `/noticed` invocation. The product framing should communicate that Noticed accumulates value over time — more sessions = better proposals — and that the user reviews on their schedule, not on a cadence.
 
 **Applies to:** UX, session-start hooks, nudge system, product framing, README
 
@@ -57,7 +57,7 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 **Date:** 2026-04-03
 **Source:** user direction
 
-**What was said:** P0 validation on the Forge repo produced 5 agent proposals that were all generic coding patterns (read→write→execute, read→execute→read) occurring in every session. User dismissed all as "not relevant" — they're not project-specific workflows, they're just how coding works. Furthermore, automating these removes the human from the loop, which isn't desired. Two proposals had duplicate IDs.
+**What was said:** P0 validation on the Noticed repo produced 5 agent proposals that were all generic coding patterns (read→write→execute, read→execute→read) occurring in every session. User dismissed all as "not relevant" — they're not project-specific workflows, they're just how coding works. Furthermore, automating these removes the human from the loop, which isn't desired. Two proposals had duplicate IDs.
 
 **Synthesized rule:** Workflow detection must distinguish project-specific workflows from universal coding patterns. If a tool-use sequence appears in >80% of sessions, it's not a workflow worth automating — it's baseline coding behavior. Agent proposals should also be scrutinized for human-in-the-loop: if the workflow involves iterative feedback (read→write→get feedback→revise), automating it removes a valuable approval step.
 
@@ -89,7 +89,7 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 **What was said:** During P0 review, Claude actively recommended against several proposals (noting they were generic or duplicates). User found this helpful and suggested: if Claude would recommend against a proposal, it shouldn't be shown. When asked whether LLM analysis should be a setting (standard vs deep), user said: "is there a reason to not have deep mode on? should that be a feature we offer, or should LLM use be implied?" The answer is implied — offering "no LLM" mode is offering worse results.
 
-**Synthesized rule:** The LLM quality gate is not optional — it's how Forge works. Don't expose implementation details (script-only vs LLM) as user settings. If something improves quality at acceptable cost (~5K tokens), just do it. Settings should be for genuine user preferences (nudge frequency, proactive behavior), not for degrading quality. If cost becomes a concern, optimize the call, don't let users opt out of quality.
+**Synthesized rule:** The LLM quality gate is not optional — it's how Noticed works. Don't expose implementation details (script-only vs LLM) as user settings. If something improves quality at acceptable cost (~5K tokens), just do it. Settings should be for genuine user preferences (nudge frequency, proactive behavior), not for degrading quality. If cost becomes a concern, optimize the call, don't let users opt out of quality.
 
 **Applies to:** analysis_depth setting (remove it), session-analyzer agent role, pipeline architecture, settings design philosophy
 
@@ -97,9 +97,9 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 **Date:** 2026-04-03
 **Source:** user direction
 
-**What was said:** Three issues with the nudge/eagerness setting: (1) "only analyzes when you run /forge" is ambiguous — unclear if it means no background prep or no presentation; (2) session count is the wrong unit — the unit of value is proposals, not sessions; (3) "Claude may or may not surface it" means the setting doesn't guarantee any UX change, which makes it not worth having. If changing a setting doesn't reliably change what the user experiences, the setting shouldn't exist.
+**What was said:** Three issues with the nudge/eagerness setting: (1) "only analyzes when you run /noticed" is ambiguous — unclear if it means no background prep or no presentation; (2) session count is the wrong unit — the unit of value is proposals, not sessions; (3) "Claude may or may not surface it" means the setting doesn't guarantee any UX change, which makes it not worth having. If changing a setting doesn't reliably change what the user experiences, the setting shouldn't exist.
 
-**Synthesized rule:** Every user-facing setting must have a clear, observable effect. If the user changes a setting and can't tell the difference, the setting is broken. For Forge: the trigger should be proposal-based (not session-count-based), the notification must be reliable (not dependent on Claude's discretion), and "quiet" must mean something specific and useful. Consider collapsing quiet/balanced/eager into a single boolean if the complexity isn't justified.
+**Synthesized rule:** Every user-facing setting must have a clear, observable effect. If the user changes a setting and can't tell the difference, the setting is broken. For Noticed: the trigger should be proposal-based (not session-count-based), the notification must be reliable (not dependent on Claude's discretion), and "quiet" must mean something specific and useful. Consider collapsing quiet/balanced/eager into a single boolean if the complexity isn't justified.
 
 **Applies to:** nudge_level setting, check-pending.py, P1 ambient presence design, settings philosophy
 
@@ -117,7 +117,7 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 **Date:** 2026-04-04
 **Source:** review feedback
 
-**What was said:** P0 validation found that proposals marked as "applied" via finalize-proposals.py reappear on the next `/forge` run if the underlying analysis still detects the same pattern. Specifically, demotion proposals regenerated from config analysis come back because `build_proposals()` filters `dismissed_ids` but has no `applied_ids` filter. The 3 demotions approved on PriorityAppXcode all reappeared on the second run.
+**What was said:** P0 validation found that proposals marked as "applied" via finalize-proposals.py reappear on the next `/noticed` run if the underlying analysis still detects the same pattern. Specifically, demotion proposals regenerated from config analysis come back because `build_proposals()` filters `dismissed_ids` but has no `applied_ids` filter. The 3 demotions approved on PriorityAppXcode all reappeared on the second run.
 
 **Synthesized rule:** Any proposal filter that checks dismissed IDs must also check applied IDs. When a proposal is applied, it should not resurface until the user explicitly re-runs analysis or the underlying pattern changes (e.g., CLAUDE.md is modified after the demotion is actually performed). This is a bug — add to P0a fix list.
 
@@ -169,7 +169,7 @@ Increment from the last entry. Use `FB-0001`, `FB-0002`, etc.
 
 **What was said:** The health table uses Unicode symbols (✓/⚠) that render as `:white_check_mark:` and `:warning:` text in Claude Code's terminal. The user wants a rendering strategy that works 100% of the time.
 
-**Synthesized rule:** Never use emoji or Unicode symbols in any output Forge generates. Use ASCII-safe alternatives (e.g., "OK", "WARN") that render correctly in every terminal, renderer, and context.
+**Synthesized rule:** Never use emoji or Unicode symbols in any output Noticed generates. Use ASCII-safe alternatives (e.g., "OK", "WARN") that render correctly in every terminal, renderer, and context.
 
 **Applies to:** format-proposals.py health table, all user-facing output
 

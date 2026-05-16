@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "forge" / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "noticed" / "scripts"))
 import project_identity as pi
 
 
@@ -81,7 +81,7 @@ class TestGetUserDataDir:
         with patch.object(pi, "_get_git_remote_url", return_value=None):
             d = pi.get_user_data_dir(tmp_path)
         assert ".claude" in str(d)
-        assert "forge" in str(d)
+        assert "noticed" in str(d)
         assert "projects" in str(d)
 
     def test_creates_directory(self, tmp_path, monkeypatch):
@@ -166,9 +166,9 @@ class TestResolveUserFile:
 class TestGetProjectDataDir:
     """Verify project-level data directory creation and path."""
 
-    def test_returns_path_under_project_claude_forge(self, tmp_path):
+    def test_returns_path_under_project_claude_noticed(self, tmp_path):
         result = pi.get_project_data_dir(tmp_path)
-        assert result == tmp_path / ".claude" / "forge"
+        assert result == tmp_path / ".claude" / "noticed"
 
     def test_creates_directory(self, tmp_path):
         result = pi.get_project_data_dir(tmp_path)
@@ -245,7 +245,7 @@ class TestResolveProjectFile:
 
         with patch.object(pi, "_get_git_remote_url", return_value=None):
             result = pi.resolve_project_file(tmp_path, "dismissed.json")
-        assert str(result).endswith(".claude/forge/dismissed.json")
+        assert str(result).endswith(".claude/noticed/dismissed.json")
         assert not result.exists()
 
     def test_nested_relative_path_migrates(self, tmp_path, monkeypatch):
@@ -286,6 +286,104 @@ class TestResolveProjectFile:
 
         # Project-level wins
         assert json.loads(result.read_text()) == [{"id": "project"}]
+
+
+class TestForgeToNoticedMigration:
+    """Tests for _migrate_dir_once — the Forge -> Noticed data dir migration."""
+
+    def test_user_data_dir_migrates_from_forge(self, tmp_path, monkeypatch):
+        """Legacy ~/.claude/forge/projects/<hash>/ is copied to noticed equivalent."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+        with patch.object(pi, "_get_git_remote_url", return_value=None):
+            project_hash = pi.compute_project_hash(tmp_path)
+
+        legacy = fake_home / ".claude" / "forge" / "projects" / project_hash
+        legacy.mkdir(parents=True)
+        (legacy / "settings.json").write_text('{"nudge_level":"eager"}')
+        (legacy / "cache").mkdir()
+        (legacy / "cache" / "deep-analysis.json").write_text('{"ts":1}')
+
+        with patch.object(pi, "_get_git_remote_url", return_value=None):
+            new_dir = pi.get_user_data_dir(tmp_path)
+
+        # Files copied forward
+        assert (new_dir / "settings.json").read_text() == '{"nudge_level":"eager"}'
+        assert (new_dir / "cache" / "deep-analysis.json").read_text() == '{"ts":1}'
+        # Legacy left intact for rollback
+        assert (legacy / "settings.json").is_file()
+
+    def test_project_data_dir_migrates_from_forge(self, tmp_path):
+        """Legacy .claude/forge/ is copied to .claude/noticed/."""
+        legacy = tmp_path / ".claude" / "forge"
+        legacy.mkdir(parents=True)
+        (legacy / "dismissed.json").write_text('[{"id":"x"}]')
+        (legacy / "history").mkdir()
+        (legacy / "history" / "applied.json").write_text('[{"id":"y"}]')
+
+        new_dir = pi.get_project_data_dir(tmp_path)
+
+        assert (new_dir / "dismissed.json").read_text() == '[{"id":"x"}]'
+        assert (new_dir / "history" / "applied.json").read_text() == '[{"id":"y"}]'
+        assert (legacy / "dismissed.json").is_file()
+
+    def test_migration_is_idempotent(self, tmp_path):
+        """Calling get_project_data_dir twice does not re-migrate or duplicate."""
+        legacy = tmp_path / ".claude" / "forge"
+        legacy.mkdir(parents=True)
+        (legacy / "dismissed.json").write_text('[{"id":"first"}]')
+
+        first = pi.get_project_data_dir(tmp_path)
+        # Modify the migrated copy
+        (first / "dismissed.json").write_text('[{"id":"modified"}]')
+
+        # Second call must NOT overwrite with legacy content
+        second = pi.get_project_data_dir(tmp_path)
+        assert second == first
+        assert (second / "dismissed.json").read_text() == '[{"id":"modified"}]'
+
+    def test_both_dirs_present_is_noop(self, tmp_path):
+        """If .claude/noticed/ already exists, .claude/forge/ is left alone."""
+        legacy = tmp_path / ".claude" / "forge"
+        legacy.mkdir(parents=True)
+        (legacy / "dismissed.json").write_text('[{"id":"forge"}]')
+
+        # Pre-create the new dir with different content
+        current = tmp_path / ".claude" / "noticed"
+        current.mkdir(parents=True)
+        (current / "dismissed.json").write_text('[{"id":"noticed"}]')
+
+        result = pi.get_project_data_dir(tmp_path)
+
+        # noticed wins; forge untouched
+        assert (result / "dismissed.json").read_text() == '[{"id":"noticed"}]'
+        assert (legacy / "dismissed.json").read_text() == '[{"id":"forge"}]'
+
+    def test_no_legacy_dir_is_noop(self, tmp_path):
+        """When no legacy dir exists, get_project_data_dir creates an empty new dir."""
+        result = pi.get_project_data_dir(tmp_path)
+        assert result.is_dir()
+        assert list(result.iterdir()) == []
+
+    def test_atomic_rename_cleans_up_tmp_on_race(self, tmp_path, monkeypatch):
+        """If another process wins the race, the losing tmp dir is cleaned up."""
+        legacy = tmp_path / ".claude" / "forge"
+        legacy.mkdir(parents=True)
+        (legacy / "dismissed.json").write_text('[{"id":"x"}]')
+
+        # Pre-create the destination to simulate another process winning
+        current = tmp_path / ".claude" / "noticed"
+        current.mkdir(parents=True)
+        (current / "marker.txt").write_text("winner")
+
+        # Should be a no-op because current.exists() check returns early
+        pi._migrate_dir_once(legacy, current)
+
+        # No leftover .migrating.* dirs
+        leftovers = list(current.parent.glob(f"{current.name}.migrating.*"))
+        assert leftovers == [], f"Leftover tmp dirs: {leftovers}"
 
 
 class TestFindProjectRoot:

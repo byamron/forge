@@ -1,4 +1,4 @@
-"""Shared fixtures for Forge tests."""
+"""Shared fixtures for Noticed tests."""
 import json
 import pytest
 from pathlib import Path

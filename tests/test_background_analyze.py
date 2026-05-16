@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "forge" / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "noticed" / "scripts"))
 ba = importlib.import_module("background-analyze")
 import project_identity as pi
 

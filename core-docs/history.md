@@ -37,6 +37,45 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Rename plugin: Forge → Noticed (v0.5.0)
+**Date:** 2026-05-16
+**Branch:** study-designer-noticed
+**Commit:** (this commit)
+
+**What was done:**
+Renamed the plugin from "Forge" to "Noticed". Version bumped to 0.5.0 (breaking change). All user-facing surfaces — marketplace name, plugin manifest, skill invocations (`/noticed`, `/noticed:settings`, `/noticed:version`), documentation, system messages, error strings — now reference Noticed. Plugin directory `forge/` renamed to `noticed/` via `git mv`. Skill directory `noticed/skills/forge/` renamed to `noticed/skills/noticed/`. Data directories `.claude/forge/` (project-shared) and `~/.claude/forge/projects/<hash>/` (user-personal) now read/write to `.claude/noticed/` and `~/.claude/noticed/projects/<hash>/` respectively.
+
+A migration helper (`_migrate_dir_once` in `noticed/scripts/project_identity.py`) copies legacy Forge data directories forward to their Noticed equivalents on first access. Migration is race-safe (copy to tmp, atomic rename) and non-destructive (legacy dirs left intact for user rollback). Two new test classes added: `TestPluginName` (4 tests) asserting manifest name across all three required locations, and `TestForgeToNoticedMigration` (6 tests) covering migration correctness, idempotency, race-safety, and the both-dirs-exist no-op case. Total test count: 528 (up from 518).
+
+**Why:**
+The plugin's positioning shifted. "Forge" framed the product as an active builder of infrastructure; "Noticed" frames it as a passive observer that surfaces what it sees. The shift came out of the Designer-Noticed research (see prior history entry P10-P14): Designer's framing of the same product surface as "the app noticed something" tested better as a mental model than "the app forges artifacts." The rename adopts that framing in Forge directly, since the underlying product behavior is the same.
+
+**Design decisions:**
+- **Migration via copy, not move.** Legacy `.claude/forge/` and `~/.claude/forge/projects/<hash>/` are left intact after migration so users can roll back or recover if anything goes wrong. The user can manually delete the legacy directories once they're confident. This is the same non-destructive pattern used in v0.2.5 and v0.3.6 storage migrations.
+- **No marketplace dual-entry.** Considered shipping both `forge` and `noticed` entries in `marketplace.json` for one or two releases. Rejected: install base is small (essentially internal); a single README "Upgrading from Forge" section suffices. The cruft of maintaining two manifest entries persists; the dev cost of a one-time README note is zero.
+- **No slash-command compat shim.** Considered keeping `/forge` as a stub that says "renamed to /noticed". Rejected: permanent cruft for marginal benefit. Users adapt faster to a hard rename than to a redirect.
+- **GitHub repository URL left as `github.com/byamron/forge`.** Renaming the repo is a separate concern (changes URLs, breaks bookmarks, requires GitHub redirect setup). Out of scope for this PR. README and PR description call this out explicitly.
+- **Historical content preserved.** `core-docs/history.md` entries untouched. `core-docs/spec.md` and `core-docs/roadmap.md` keep their body content as historical artifact with a one-line rename note prepended. The product was named Forge when those docs were written; rewriting them would erase context that informs future decisions.
+- **Skill directory matches new plugin name.** `noticed/skills/noticed/SKILL.md` is the main skill, invoked as `/noticed`. Sub-skill directories (`settings/`, `version/`) keep their names; their invocations gain the new namespace prefix automatically (`/noticed:settings`, `/noticed:version`).
+
+**Technical decisions:**
+- **`_migrate_dir_once` uses copy-then-atomic-rename.** Copies the legacy tree to a sibling tmp directory (`<name>.migrating.<pid>`), then `os.rename` into place. Atomic on POSIX when the destination doesn't exist. If a concurrent SessionStart hook from a parallel Claude Code window wins the race, the losing process's `os.rename` fails with ENOTEMPTY/EEXIST and cleans up its tmp copy. Original version of the helper used `shutil.copytree(legacy, current)` directly — flagged by audit as race-unsafe.
+- **Both-dirs-exist case is a silent no-op, with `current` treated as canonical.** A user who ran old Forge and new Noticed in parallel will have both `.claude/forge/` and `.claude/noticed/` populated. Choosing automatically would risk data loss; surfacing a dialog requires UI we don't have. Documented in the helper's docstring; user can manually consolidate if they care.
+- **Plugin-root fallback in SKILL.md scripts** updated to key on `noticed@` prefix in `~/.claude/plugins/installed_plugins.json`. Primary path (`CLAUDE_PLUGIN_ROOT` env var) is unaffected; the fallback only matters when the env var is missing.
+- **`validate-paths.py` retains `.claude/forge/`** as an allowed write prefix for the migration window. Removed in a future release once we're confident no archived migration writes target it.
+- **`noticed/scripts/log-session.sh`** falls back to reading `~/.claude/forge/repo-index.json` when the new path doesn't exist, preserving cross-worktree session tracking through the rename.
+
+**Tradeoffs discussed:**
+- **Rename directory vs keep `forge/` and only change manifest names.** Rename chosen. Keeping `forge/` would leave a permanent dissonance between the product name and the source-tree directory. `${CLAUDE_PLUGIN_ROOT}` resolution makes the directory rename internally transparent at runtime; the only real cost is git-log discontinuity, mitigated by `git mv` preserving file history.
+- **Combine this rename with PR #49 vs ship as separate PR.** Combined. The user requested it "as part of these changes" — treating it as the same logical unit. PR is larger but the units are conceptually linked (the plan items P10-P14 reference "Noticed" terminology in their docstrings, which only makes sense after the rename).
+- **Bump to 0.5.0 vs 1.0.0.** Chose 0.5.0. This is breaking for users (skill invocation changes, data dir paths change), but the product surface is unchanged. 1.0.0 conventionally signals stability we haven't yet earned. 0.5.0 is the right "this is breaking but not a stability claim" version.
+
+**Lessons learned:**
+- A mechanical rename across 70+ files is genuinely tractable to delegate to a single subagent with clear preservation rules. The audit step caught race-safety in the migration code and missing manifest-name test assertions — both are exactly the kind of "everything compiles, nothing's wrong... except this one corner" issues a subagent's success report can mask. Audit-before-ship discipline matters more for big mechanical PRs than for small ones.
+- The migration helper's race-safety bug was a textbook example of "obviously correct on a single-process read of the code, obviously wrong once you consider concurrency." The atomic-rename fix is small but required deliberate thought; the original `shutil.copytree(legacy, current)` was the kind of code that passes review and breaks in production once two users start Claude Code at the same time.
+
+---
+
 ### P10-P14 plan + native-build possibilities doc (planning only)
 **Date:** 2026-05-16
 **Branch:** daegu-v2

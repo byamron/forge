@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate synthetic project fixtures for Forge pipeline integration tests.
+"""Generate synthetic project fixtures for Noticed pipeline integration tests.
 
 Creates self-contained project directories with realistic configurations,
 transcript JSONL files, and memory entries that exercise specific detection
@@ -1066,17 +1066,17 @@ def materialize_profile(profile: ProjectProfile, base_dir: Path) -> Path:
 
     # Write dismissed.json
     if profile.dismissed:
-        forge_dir = project_root / "_forge_data"
-        forge_dir.mkdir(parents=True, exist_ok=True)
-        (forge_dir / "dismissed.json").write_text(
+        noticed_dir = project_root / "_noticed_data"
+        noticed_dir.mkdir(parents=True, exist_ok=True)
+        (noticed_dir / "dismissed.json").write_text(
             json.dumps(profile.dismissed, indent=2),
             encoding="utf-8",
         )
 
     # Write suppressed themes into analyzer-stats.json
     if profile.suppressed_themes:
-        forge_dir = project_root / "_forge_data"
-        forge_dir.mkdir(parents=True, exist_ok=True)
+        noticed_dir = project_root / "_noticed_data"
+        noticed_dir.mkdir(parents=True, exist_ok=True)
         stats = {
             "version": 1,
             "corrections": {"proposed": 0, "approved": 0, "dismissed": 0},
@@ -1085,7 +1085,7 @@ def materialize_profile(profile: ProjectProfile, base_dir: Path) -> Path:
             "theme_outcomes": {},
             "suppressed_themes": profile.suppressed_themes,
         }
-        (forge_dir / "analyzer-stats.json").write_text(
+        (noticed_dir / "analyzer-stats.json").write_text(
             json.dumps(stats, indent=2),
             encoding="utf-8",
         )
@@ -1129,7 +1129,7 @@ def generate_all(output_dir: Path) -> Dict[str, Path]:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate synthetic Forge test fixtures."
+        description="Generate synthetic Noticed test fixtures."
     )
     parser.add_argument(
         "--output-dir",
@@ -1143,7 +1143,7 @@ def main():
         output = Path(args.output_dir)
     else:
         import tempfile
-        output = Path(tempfile.mkdtemp(prefix="forge-fixtures-"))
+        output = Path(tempfile.mkdtemp(prefix="noticed-fixtures-"))
 
     output.mkdir(parents=True, exist_ok=True)
     results = generate_all(output)

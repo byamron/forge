@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import importlib
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "forge" / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "noticed" / "scripts"))
 _at = importlib.import_module("analyze-transcripts")
 classify_response = _at.classify_response
 

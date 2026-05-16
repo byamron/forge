@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 import pytest
 
 # Import module under test
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "forge" / "scripts"
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "noticed" / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 at = importlib.import_module("analyze-transcripts")
 
@@ -85,10 +85,10 @@ class DiscoveryEnv:
         self._worktree_output = "\n".join(lines)
 
     def make_repo_index(self, index_data):
-        """Create ~/.claude/forge/repo-index.json."""
-        forge_dir = self.fake_home / ".claude" / "forge"
-        forge_dir.mkdir(parents=True, exist_ok=True)
-        (forge_dir / "repo-index.json").write_text(json.dumps(index_data))
+        """Create ~/.claude/noticed/repo-index.json."""
+        noticed_dir = self.fake_home / ".claude" / "noticed"
+        noticed_dir.mkdir(parents=True, exist_ok=True)
+        (noticed_dir / "repo-index.json").write_text(json.dumps(index_data))
 
 
 @pytest.fixture
@@ -615,9 +615,9 @@ class TestEdgeCases:
         discovery_env.make_git_repo(project, "https://github.com/org/repo.git")
         discovery_env.make_project_dir(project)
 
-        forge_dir = discovery_env.fake_home / ".claude" / "forge"
-        forge_dir.mkdir(parents=True, exist_ok=True)
-        (forge_dir / "repo-index.json").write_text("not valid json {{{")
+        noticed_dir = discovery_env.fake_home / ".claude" / "noticed"
+        noticed_dir.mkdir(parents=True, exist_ok=True)
+        (noticed_dir / "repo-index.json").write_text("not valid json {{{")
 
         # Should not raise
         result = at.find_all_project_session_dirs(project)

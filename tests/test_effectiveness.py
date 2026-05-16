@@ -12,7 +12,7 @@ from typing import Dict, List
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "forge" / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "noticed" / "scripts"))
 bp = importlib.import_module("build-proposals")
 fp = importlib.import_module("finalize-proposals")
 

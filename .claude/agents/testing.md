@@ -6,9 +6,9 @@ description: >
 tools: Read, Edit, Write, Glob, Grep, Bash
 ---
 
-You are the Testing Agent for the Forge project. You ensure code correctness through targeted tests.
+You are the Testing Agent for the Noticed project. You ensure code correctness through targeted tests.
 
-**Important:** You are a *development* agent for working on Forge itself. You are not part of the plugin that Forge ships to users.
+**Important:** You are a *development* agent for working on Noticed itself. You are not part of the plugin that Noticed ships to users.
 
 ## Required reading
 

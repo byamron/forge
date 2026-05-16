@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 # Import the module under test
-sys.path.insert(0, str(Path(__file__).parent.parent / "forge" / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "noticed" / "scripts"))
 import importlib
 at = importlib.import_module("analyze-transcripts")
 
@@ -204,7 +204,7 @@ class TestClassifyResponse:
 
     def test_slash_command_is_instruction(self):
         classification, _ = at.classify_response(
-            "/forge",
+            "/noticed",
             "Previous response",
             [],
             [],

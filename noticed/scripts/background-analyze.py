@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Background analysis trigger for Forge SessionStart hook.
+"""Background analysis trigger for Noticed SessionStart hook.
 
 Checks if enough unanalyzed sessions have accumulated and, if so,
 spawns cache-manager.py --update as a fully detached background process.
@@ -8,7 +8,7 @@ Returns immediately so the hook does not block session start.
 Script analysis (Phase A) is always zero LLM token cost. After Phase A
 completes, a deep analysis pass runs via `claude -p --bare --model sonnet`,
 filtering script proposals for quality and finding additional patterns.
-The result is cached for the next `/forge` invocation.
+The result is cached for the next `/noticed` invocation.
 
 Usage (hook mode -- returns immediately):
     python3 background-analyze.py [--plugin-root /path] [--project-root /path]
@@ -52,7 +52,7 @@ DEEP_MAX_PAIRS = 30
 
 
 def _load_settings(project_root: Path) -> Dict[str, Any]:
-    """Load Forge settings, returning empty dict on failure."""
+    """Load Noticed settings, returning empty dict on failure."""
     settings_path = resolve_user_file(project_root, "settings.json")
     if settings_path.is_file():
         try:
@@ -312,7 +312,7 @@ def _run_analysis(root: Path, plugin_root: str, user_data_dir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Forge background analysis trigger"
+        description="Noticed background analysis trigger"
     )
     parser.add_argument("--plugin-root", type=str, default=None)
     parser.add_argument("--project-root", type=str, default=None)
@@ -383,5 +383,5 @@ if __name__ == "__main__":
     except Exception:
         # SessionStart hooks must never crash visibly.
         # Failure here just means background analysis doesn't run --
-        # the user can still invoke /forge manually.
+        # the user can still invoke /noticed manually.
         pass

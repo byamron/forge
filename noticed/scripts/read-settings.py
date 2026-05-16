@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Read Forge settings and output current configuration as JSON.
+"""Read Noticed settings and output current configuration as JSON.
 
-Settings file: ~/.claude/forge/projects/<hash>/settings.json
+Settings file: ~/.claude/noticed/projects/<hash>/settings.json
 Falls back to defaults if the file doesn't exist or is invalid.
 
 Usage:
@@ -20,7 +20,7 @@ DEFAULTS = {
 }
 
 LEVEL_DESCRIPTIONS = {
-    "quiet": "No automatic nudges. Forge only runs when you invoke /forge.",
+    "quiet": "No automatic nudges. Noticed only runs when you invoke /noticed.",
     "balanced": "Nudge when you have pending proposals, or after 5+ sessions since last analysis.",
     "eager": "Nudge when you have any pending proposals, or after 2+ sessions since last analysis.",
 }

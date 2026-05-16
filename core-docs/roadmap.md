@@ -1,4 +1,6 @@
-# Forge — Implementation Roadmap
+# Noticed — Implementation Roadmap
+
+> Original roadmap (Forge v0.1); product renamed to Noticed in v0.5.0. Historical references to "Forge" below preserved for context.
 
 ## How to use this document
 

@@ -1,5 +1,5 @@
 ---
-path: "forge/{skills,agents}/**/*.md"
+path: "noticed/{skills,agents}/**/*.md"
 ---
 
 Skills and agents are markdown files with YAML frontmatter that instruct Claude on what to do.

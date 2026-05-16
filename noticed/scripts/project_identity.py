@@ -1,26 +1,34 @@
 #!/usr/bin/env python3
-"""Project identity and data directory resolution for Forge.
+"""Project identity and data directory resolution for Noticed.
 
-Centralizes how Forge identifies a project (via git remote URL hash) and
+Centralizes how Noticed identifies a project (via git remote URL hash) and
 resolves per-project data files at two levels:
 
-User-level (~/.claude/forge/projects/<hash>/):
+User-level (~/.claude/noticed/projects/<hash>/):
     Personal settings, caches, pending proposals, session logs, analysis lock.
     Private to each machine/user. Not shared across contributors.
 
-Project-level (<project_root>/.claude/forge/):
+Project-level (<project_root>/.claude/noticed/):
     Feedback data that shapes proposals: dismissed.json, history/applied.json,
     feedback_signals.json. Git-tracked, shared across all contributors.
 
 Functions:
     compute_project_hash    -- SHA-256 hash of the cleaned git remote URL
-    get_user_data_dir       -- ~/.claude/forge/projects/<hash>/ with auto-create
-    get_project_data_dir    -- <root>/.claude/forge/ with auto-create
+    get_user_data_dir       -- ~/.claude/noticed/projects/<hash>/ with auto-create
+    get_project_data_dir    -- <root>/.claude/noticed/ with auto-create
     resolve_user_file       -- migrate-on-read from legacy .claude/forge/ to user-level
     resolve_project_file    -- migrate-on-read from user-level to project-level
+
+Migration:
+    On first access to either data dir, _migrate_dir_once() copies the
+    corresponding legacy Forge directory (.claude/forge/ or
+    ~/.claude/forge/projects/<hash>/) forward to the Noticed location.
+    Legacy directories are left intact for rollback and audit.
 """
 
 import hashlib
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -123,10 +131,57 @@ def _get_git_remote_url(project_root: Path) -> Optional[str]:
         return None
 
 
+def _migrate_dir_once(legacy: Path, current: Path) -> None:
+    """Copy a legacy Forge data directory to the new Noticed location.
+
+    One-shot, idempotent, race-safe: if ``legacy`` exists as a directory
+    and ``current`` does not yet exist, copies the entire tree to a
+    sibling tmp directory and atomically renames it into place. If a
+    concurrent process completes the migration first, the losing
+    process cleans up its tmp copy and proceeds. The legacy directory
+    is left intact so users can rollback or audit the pre-rename state.
+
+    Failures are logged but never raise -- the caller proceeds with an
+    empty ``current`` if migration fails.
+
+    Note: if both ``legacy`` and ``current`` exist (e.g. user ran both
+    old Forge and new Noticed in parallel), this is a silent no-op.
+    ``current`` is treated as canonical; ``legacy`` is left untouched.
+    The user can manually consolidate if needed.
+    """
+    if not legacy.is_dir() or current.exists():
+        return
+    current.parent.mkdir(parents=True, exist_ok=True)
+    tmp = current.parent / "{}.migrating.{}".format(current.name, os.getpid())
+    try:
+        # Clean any leftover tmp from a prior failed attempt by this PID.
+        if tmp.exists():
+            shutil.rmtree(tmp, ignore_errors=True)
+        shutil.copytree(legacy, tmp)
+        try:
+            # Atomic on POSIX when the target does not exist. If another
+            # process raced ahead and created `current`, os.rename fails
+            # with ENOTEMPTY (or similar) and we treat their copy as
+            # canonical, cleaning up ours.
+            os.rename(tmp, current)
+        except OSError:
+            shutil.rmtree(tmp, ignore_errors=True)
+    except OSError as exc:
+        shutil.rmtree(tmp, ignore_errors=True)
+        print(
+            "Warning: Forge to Noticed migration of {} failed: {}".format(
+                legacy, exc
+            ),
+            file=sys.stderr,
+        )
+
+
 def get_user_data_dir(project_root: Path) -> Path:
     """Return the user-level data directory for this project.
 
-    The directory is ``~/.claude/forge/projects/<project_hash>/``.
+    The directory is ``~/.claude/noticed/projects/<project_hash>/``.
+    On first access, migrates the pre-rename Forge directory
+    (``~/.claude/forge/projects/<project_hash>/``) forward by copy.
     Creates the directory (with parents) if it does not already exist.
 
     Args:
@@ -136,17 +191,24 @@ def get_user_data_dir(project_root: Path) -> Path:
         The resolved Path to the user-data directory.
     """
     project_hash = compute_project_hash(project_root)
-    data_dir = Path.home() / ".claude" / "forge" / "projects" / project_hash
+    data_dir = Path.home() / ".claude" / "noticed" / "projects" / project_hash
+    legacy_dir = Path.home() / ".claude" / "forge" / "projects" / project_hash
+    _migrate_dir_once(legacy_dir, data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
 
 
 def get_project_data_dir(project_root: Path) -> Path:
-    """Return the project-level Forge data directory (.claude/forge/).
+    """Return the project-level Noticed data directory (.claude/noticed/).
 
     This directory is git-tracked and shared across all contributors.
     Contains feedback data that shapes proposals: dismissed.json,
     history/applied.json, feedback_signals.json.
+
+    On first access, migrates the pre-rename Forge directory
+    (``.claude/forge/``) forward by copy. Legacy directory is left intact
+    so contributors who haven't updated still see their data; the new
+    directory becomes the source of truth going forward.
 
     Args:
         project_root: The root directory of the project.
@@ -154,7 +216,9 @@ def get_project_data_dir(project_root: Path) -> Path:
     Returns:
         The resolved Path to the project-level data directory.
     """
-    data_dir = project_root / ".claude" / "forge"
+    data_dir = project_root / ".claude" / "noticed"
+    legacy_dir = project_root / ".claude" / "forge"
+    _migrate_dir_once(legacy_dir, data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
 
@@ -162,13 +226,13 @@ def get_project_data_dir(project_root: Path) -> Path:
 def resolve_project_file(project_root: Path, relative_path: str) -> Path:
     """Resolve a project-level data file, migrating from user-level if needed.
 
-    The project-level location is ``<project_root>/.claude/forge/``.
-    The user-level location is ``~/.claude/forge/projects/<hash>/``.
+    The project-level location is ``<project_root>/.claude/noticed/``.
+    The user-level location is ``~/.claude/noticed/projects/<hash>/``.
 
     If the file exists at the project location, it is returned immediately.
     If the file only exists at the user-level location, it is copied to the
     project location. The user-level copy is NOT deleted -- other worktrees
-    or older Forge versions may still read from there.
+    or older Noticed versions may still read from there.
     If neither location has the file, the project-level path is returned
     for the caller to create or handle absence.
 
@@ -202,7 +266,7 @@ def resolve_project_file(project_root: Path, relative_path: str) -> Path:
             data = user_path.read_bytes()
             new_path.write_bytes(data)
             # Do NOT delete the user-level copy -- other worktrees or
-            # older Forge versions may still reference it.
+            # older Noticed versions may still reference it.
         except OSError as exc:
             print(
                 "Warning: migration of {} to project-level failed: {}".format(
@@ -217,8 +281,9 @@ def resolve_project_file(project_root: Path, relative_path: str) -> Path:
 def resolve_user_file(project_root: Path, relative_path: str) -> Path:
     """Resolve a user-data file, migrating from legacy location if needed.
 
-    The new location is under ``~/.claude/forge/projects/<hash>/``.
-    The legacy location is ``<project_root>/.claude/forge/``.
+    The new location is under ``~/.claude/noticed/projects/<hash>/``.
+    The legacy location is ``<project_root>/.claude/forge/`` (pre-storage-
+    split layout, retained for users who skipped several versions).
 
     If the file exists at the new location, it is returned immediately.
     If the file only exists at the legacy location, it is copied to the
@@ -278,7 +343,7 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Print the user-level Forge data directory for a project."
+        description="Print the user-level Noticed data directory for a project."
     )
     parser.add_argument("--project-root", required=True)
     args = parser.parse_args()

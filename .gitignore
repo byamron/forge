@@ -1,5 +1,5 @@
-# Forge runtime state (per-user, not project config)
-.claude/forge/
+# Noticed runtime state (per-user, not project config)
+.claude/noticed/
 
 # Per-user local config from /remember
 .claude/CLAUDE.local.md

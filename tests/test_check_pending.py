@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 # Add the scripts directory to the path so we can import check-pending functions.
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "forge" / "scripts"
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "noticed" / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 # Import after path setup. The module name has a hyphen, use importlib.
@@ -204,7 +204,7 @@ class TestMain:
 
     def test_single_proposal(self, tmp_path):
         result = self._run_main(tmp_path, proposals=[_make_proposal()])
-        assert result["systemMessage"] == "Forge has 1 proposal. Run `/forge` to review."
+        assert result["systemMessage"] == "Noticed has 1 proposal. Run `/noticed` to review."
 
     def test_multiple_proposals(self, tmp_path):
         result = self._run_main(tmp_path, proposals=[
@@ -212,17 +212,17 @@ class TestMain:
             _make_proposal(pid="p2"),
             _make_proposal(pid="p3"),
         ])
-        assert result["systemMessage"] == "Forge has 3 proposals. Run `/forge` to review."
+        assert result["systemMessage"] == "Noticed has 3 proposals. Run `/noticed` to review."
 
     # --- No proposals, sessions tracked ---
 
     def test_health_signal_with_sessions(self, tmp_path):
         result = self._run_main(tmp_path, proposals=[], session_log_count=23)
-        assert result["systemMessage"] == "Forge: tracking 23 sessions for this project."
+        assert result["systemMessage"] == "Noticed: tracking 23 sessions for this project."
 
     def test_health_signal_singular(self, tmp_path):
         result = self._run_main(tmp_path, proposals=[], session_log_count=1)
-        assert result["systemMessage"] == "Forge: tracking 1 session for this project."
+        assert result["systemMessage"] == "Noticed: tracking 1 session for this project."
 
     # --- Empty state ---
 
@@ -275,7 +275,7 @@ class TestMain:
             proposals=[_make_proposal()],
             settings={"nudge_level": "quiet"},
         )
-        assert result["systemMessage"] == "Forge has 1 proposal. Run `/forge` to review."
+        assert result["systemMessage"] == "Noticed has 1 proposal. Run `/noticed` to review."
 
     # --- Deep cache gating ---
 

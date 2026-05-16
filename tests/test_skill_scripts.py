@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "forge" / "scripts"
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "noticed" / "scripts"
 
 
 def run_script(name: str, stdin_data: str, extra_args=None):
@@ -136,7 +136,7 @@ class TestValidatePaths:
             {"id": "p2", "suggested_path": "CLAUDE.md"},
             {"id": "p3", "suggested_path": ".claude/skills/my-skill/SKILL.md"},
             {"id": "p4", "suggested_path": ".claude/settings.json"},
-            {"id": "p5", "suggested_path": ".claude/forge/cache.json"},
+            {"id": "p5", "suggested_path": ".claude/noticed/cache.json"},
         ]
         rc, out, _ = run_script("validate-paths.py", json.dumps(data))
         assert rc == 0

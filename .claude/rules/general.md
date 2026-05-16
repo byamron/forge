@@ -33,6 +33,6 @@ Everything else (bug fixes, spec compliance, reliability, polish) can be done au
 
 ## Plugin vs dev boundary
 
-- **Plugin files** (`forge/`) ship to users. Changes require a version bump in all three locations (see `.claude/rules/plugin-structure.md`).
+- **Plugin files** (`noticed/`) ship to users. Changes require a version bump in all three locations (see `.claude/rules/plugin-structure.md`).
 - **Dev files** (`.claude/`, `core-docs/`, `tests/`) are internal. Changes do not require a version bump.
 - Never move dev infrastructure into the plugin directory or vice versa.

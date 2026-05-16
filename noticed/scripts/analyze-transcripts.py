@@ -523,12 +523,15 @@ def _get_repo_remote(project_root: Path) -> Optional[str]:
 
 
 def _load_repo_index() -> Dict[str, List[str]]:
-    """Load the Forge repo index (remote_url -> list of project dir names).
+    """Load the Noticed repo index (remote_url -> list of project dir names).
 
     The index is maintained by the SessionEnd hook for forward coverage.
-    Stored at ~/.claude/forge/repo-index.json.
+    Stored at ~/.claude/noticed/repo-index.json (with fallback to the legacy
+    ~/.claude/forge/repo-index.json pre-rename location).
     """
-    index_path = Path.home() / ".claude" / "forge" / "repo-index.json"
+    index_path = Path.home() / ".claude" / "noticed" / "repo-index.json"
+    if not index_path.is_file():
+        index_path = Path.home() / ".claude" / "forge" / "repo-index.json"
     if not index_path.is_file():
         return {}
     try:
@@ -857,8 +860,14 @@ def build_conversation_pairs(sessions: dict) -> List[dict]:
 # ---------------------------------------------------------------------------
 
 def load_feedback_stats() -> dict:
-    """Load analyzer stats from ~/.claude/forge/analyzer-stats.json."""
-    stats_path = Path.home() / ".claude" / "forge" / "analyzer-stats.json"
+    """Load analyzer stats from ~/.claude/noticed/analyzer-stats.json.
+
+    Falls back to the pre-rename ~/.claude/forge/analyzer-stats.json location
+    if the new file does not yet exist.
+    """
+    stats_path = Path.home() / ".claude" / "noticed" / "analyzer-stats.json"
+    if not stats_path.is_file():
+        stats_path = Path.home() / ".claude" / "forge" / "analyzer-stats.json"
     default = {
         "version": 1,
         "corrections": {"proposed": 0, "approved": 0, "dismissed": 0},

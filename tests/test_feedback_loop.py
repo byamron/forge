@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "forge" / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "noticed" / "scripts"))
 fp = importlib.import_module("finalize-proposals")
 bp = importlib.import_module("build-proposals")
 fmt = importlib.import_module("format-proposals")
@@ -513,10 +513,10 @@ class TestStorageSplit:
     """Verify feedback data writes to project-level, personal data to user-level."""
 
     def test_dismissed_writes_to_project_level(self, tmp_path):
-        """_record_dismissed writes to .claude/forge/dismissed.json."""
+        """_record_dismissed writes to .claude/noticed/dismissed.json."""
         project = tmp_path / "project"
         project.mkdir()
-        project_data = project / ".claude" / "forge"
+        project_data = project / ".claude" / "noticed"
         dismissed = [{"id": "x", "type": "hook", "reason": "low_impact"}]
         with patch.object(fp, "get_project_data_dir", return_value=project_data):
             fp._record_dismissed(project, dismissed)
@@ -525,10 +525,10 @@ class TestStorageSplit:
         assert data[0]["reason"] == "low_impact"
 
     def test_applied_writes_to_project_level(self, tmp_path):
-        """_record_applied writes to .claude/forge/history/applied.json."""
+        """_record_applied writes to .claude/noticed/history/applied.json."""
         project = tmp_path / "project"
         project.mkdir()
-        project_data = project / ".claude" / "forge"
+        project_data = project / ".claude" / "noticed"
         project_data.mkdir(parents=True)
         applied = [{"id": "fix-imports", "type": "rule"}]
         all_proposals = [{"id": "fix-imports", "type": "rule",
@@ -544,7 +544,7 @@ class TestStorageSplit:
         """_write_feedback_signals writes feedback_signals.json to project-level."""
         project = tmp_path / "project"
         project.mkdir()
-        project_data = project / ".claude" / "forge"
+        project_data = project / ".claude" / "noticed"
         project_data.mkdir(parents=True)
 
         fake_home = tmp_path / "home"
@@ -567,11 +567,11 @@ class TestStorageSplit:
         """_update_stats writes legacy counters to user-level WITHOUT feedback_signals."""
         project = tmp_path / "project"
         project.mkdir()
-        project_data = project / ".claude" / "forge"
+        project_data = project / ".claude" / "noticed"
         project_data.mkdir(parents=True)
 
         fake_home = tmp_path / "home"
-        (fake_home / ".claude" / "forge").mkdir(parents=True)
+        (fake_home / ".claude" / "noticed").mkdir(parents=True)
         monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
 
         outcomes = [
@@ -582,7 +582,7 @@ class TestStorageSplit:
         with patch.object(fp, "get_project_data_dir", return_value=project_data):
             fp._update_stats(project, outcomes)
 
-        stats_path = fake_home / ".claude" / "forge" / "analyzer-stats.json"
+        stats_path = fake_home / ".claude" / "noticed" / "analyzer-stats.json"
         stats = json.loads(stats_path.read_text())
         # Legacy counters present
         assert stats["corrections"]["approved"] == 1
@@ -594,7 +594,7 @@ class TestStorageSplit:
         """_write_feedback_signals migrates from analyzer-stats.json on first access."""
         project = tmp_path / "project"
         project.mkdir()
-        project_data = project / ".claude" / "forge"
+        project_data = project / ".claude" / "noticed"
         project_data.mkdir(parents=True)
 
         fake_home = tmp_path / "home"
@@ -656,7 +656,7 @@ class TestStorageSplit:
         """_record_applied reads existing data from user-level if project-level empty."""
         project = tmp_path / "project"
         project.mkdir()
-        project_data = project / ".claude" / "forge"
+        project_data = project / ".claude" / "noticed"
         project_data.mkdir(parents=True)
 
         fake_home = tmp_path / "home"
@@ -689,7 +689,7 @@ class TestStorageSplit:
         """_record_dismissed reads existing data from user-level if project-level empty."""
         project = tmp_path / "project"
         project.mkdir()
-        project_data = project / ".claude" / "forge"
+        project_data = project / ".claude" / "noticed"
         project_data.mkdir(parents=True)
 
         fake_home = tmp_path / "home"

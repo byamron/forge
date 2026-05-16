@@ -6,7 +6,7 @@ preventing regressions on fixes applied during enterprise hardening.
 import subprocess
 from pathlib import Path
 
-SCRIPTS_DIR = Path(__file__).parent.parent / "forge" / "scripts"
+SCRIPTS_DIR = Path(__file__).parent.parent / "noticed" / "scripts"
 
 
 def _grep_scripts(pattern: str) -> list:

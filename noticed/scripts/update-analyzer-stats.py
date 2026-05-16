@@ -2,8 +2,10 @@
 """Update analyzer feedback stats after a proposal decision.
 
 Called by the optimize skill after the user approves, dismisses, or
-permanently suppresses a proposal. Updates ~/.claude/forge/analyzer-stats.json
-so the transcript analyzer can learn from past decisions.
+permanently suppresses a proposal. Updates ~/.claude/noticed/analyzer-stats.json
+so the transcript analyzer can learn from past decisions. Reads fall back to
+the pre-rename ~/.claude/forge/analyzer-stats.json location if the new file
+does not yet exist.
 
 Usage:
     python3 update-analyzer-stats.py --category corrections \
@@ -53,7 +55,10 @@ def main():
     )
     args = parser.parse_args()
 
-    stats_path = Path.home() / ".claude" / "forge" / "analyzer-stats.json"
+    stats_path = Path.home() / ".claude" / "noticed" / "analyzer-stats.json"
+    read_path = stats_path if stats_path.is_file() else (
+        Path.home() / ".claude" / "forge" / "analyzer-stats.json"
+    )
 
     # Load existing stats
     stats = {
@@ -64,9 +69,9 @@ def main():
         "theme_outcomes": {},
         "suppressed_themes": [],
     }
-    if stats_path.is_file():
+    if read_path.is_file():
         try:
-            with open(stats_path, "r") as f:
+            with open(read_path, "r") as f:
                 loaded = json.load(f)
             if isinstance(loaded, dict) and loaded.get("version") == 1:
                 stats = loaded

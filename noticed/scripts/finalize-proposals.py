@@ -76,7 +76,7 @@ def _record_applied(project_root: Path, applied: List[Dict],
                     all_proposals: List[Dict]) -> None:
     """Append applied proposals to history with triggering pattern data.
 
-    Writes to project-level (.claude/forge/history/applied.json) so that
+    Writes to project-level (.claude/noticed/history/applied.json) so that
     provenance data is git-tracked and shared across contributors.
     Falls back to reading from user-level on first migration.
     """
@@ -132,7 +132,7 @@ def _record_applied(project_root: Path, applied: List[Dict],
 def _record_dismissed(project_root: Path, dismissed: List[Dict]) -> None:
     """Append dismissed proposals to dismissed.json.
 
-    Writes to project-level (.claude/forge/dismissed.json) so that
+    Writes to project-level (.claude/noticed/dismissed.json) so that
     dismissals affect what all contributors see.
     Falls back to reading from user-level on first migration.
     """
@@ -273,7 +273,10 @@ def _write_feedback_signals(project_root: Path, outcomes: List[Dict]) -> None:
         fs_data = existing
     else:
         # Migrate from user-level analyzer-stats.json on first access
-        stats_path = Path.home() / ".claude" / "forge" / "analyzer-stats.json"
+        stats_path = Path.home() / ".claude" / "noticed" / "analyzer-stats.json"
+        if not stats_path.is_file():
+            # Pre-rename location
+            stats_path = Path.home() / ".claude" / "forge" / "analyzer-stats.json"
         if stats_path.is_file():
             stats = _load_json(stats_path)
             if isinstance(stats, dict) and "feedback_signals" in stats:
@@ -290,13 +293,18 @@ def _update_stats(project_root: Path, outcomes: List[Dict]) -> None:
     """Update analyzer-stats.json (user-level) and feedback_signals.json (project-level).
 
     Legacy counters (corrections, post_actions, repeated_prompts, theme_outcomes,
-    suppressed_themes) stay in ~/.claude/forge/analyzer-stats.json (user-level).
+    suppressed_themes) stay in ~/.claude/noticed/analyzer-stats.json (user-level).
 
     Feedback signals (category precision, dismissal reasons, modification
     signals, skip counts, safety gate) are written to
-    .claude/forge/feedback_signals.json (project-level, git-tracked).
+    .claude/noticed/feedback_signals.json (project-level, git-tracked).
     """
-    stats_path = Path.home() / ".claude" / "forge" / "analyzer-stats.json"
+    # Writes always go to the canonical Noticed path. Reads fall back to the
+    # pre-rename Forge path so existing aggregate counters are preserved.
+    stats_path = Path.home() / ".claude" / "noticed" / "analyzer-stats.json"
+    read_path = stats_path if stats_path.is_file() else (
+        Path.home() / ".claude" / "forge" / "analyzer-stats.json"
+    )
     stats = {
         "version": 2,
         "corrections": {"proposed": 0, "approved": 0, "dismissed": 0},
@@ -305,8 +313,8 @@ def _update_stats(project_root: Path, outcomes: List[Dict]) -> None:
         "theme_outcomes": {},
         "suppressed_themes": [],
     }
-    if stats_path.is_file():
-        loaded = _load_json(stats_path)
+    if read_path.is_file():
+        loaded = _load_json(read_path)
         if isinstance(loaded, dict) and loaded.get("version") in (1, 2):
             stats = loaded
 

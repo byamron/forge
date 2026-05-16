@@ -12,8 +12,8 @@ from typing import List
 
 import pytest
 
-# Ensure forge/scripts is on path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "forge" / "scripts"))
+# Ensure noticed/scripts is on path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "noticed" / "scripts"))
 at = importlib.import_module("analyze-transcripts")
 
 # Import the eval scripts

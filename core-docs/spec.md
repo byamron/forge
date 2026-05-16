@@ -1,4 +1,6 @@
-# Forge — Claude Code Infrastructure Plugin
+# Noticed — Claude Code Infrastructure Plugin
+
+> Original spec (Forge v0.1); product renamed to Noticed in v0.5.0. Historical references to "Forge" below preserved for context.
 
 ## Product & Technical Specification — v0.1
 
