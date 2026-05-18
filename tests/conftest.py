@@ -1,7 +1,56 @@
 """Shared fixtures for Noticed tests."""
 import json
+import shutil
 import pytest
 from pathlib import Path
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _clean_leaked_project_dirs():
+    """Remove entries created in the user's real ~/.claude/{noticed,forge}/projects/ during the test session.
+
+    Tests that don't monkeypatch ``Path.home()`` cause ``get_user_data_dir()``
+    to create directories under the real ``~/.claude/noticed/projects/<hash>/``,
+    where the hash falls back to path-encoded form (because the tmp_path
+    isn't a git repo). These leak across runs and accumulate.
+
+    This fixture snapshots what's there at session start and deletes any
+    new entries at session end. Pre-existing entries (real project data
+    or intentional dirs) are left untouched.
+    """
+    targets = [
+        Path.home() / ".claude" / "noticed" / "projects",
+        Path.home() / ".claude" / "forge" / "projects",
+    ]
+    snapshots = {}
+    for t in targets:
+        if t.is_dir():
+            snapshots[t] = set(p.name for p in t.iterdir())
+        else:
+            snapshots[t] = None  # didn't exist at start
+
+    yield
+
+    for t, snapshot in snapshots.items():
+        if not t.is_dir():
+            continue
+        current = set(p.name for p in t.iterdir())
+        new_entries = current - (snapshot or set())
+        for name in new_entries:
+            path = t / name
+            try:
+                if path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        # If we created the parent dir during the session, drop it
+        if snapshot is None and not any(t.iterdir()):
+            try:
+                t.rmdir()
+            except OSError:
+                pass
 
 
 @pytest.fixture
