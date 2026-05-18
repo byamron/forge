@@ -1,30 +1,30 @@
-# Forge — Claude Code Infrastructure Plugin
+# Noticed — Claude Code Infrastructure Plugin
 
 ## Project
 
-Forge is a Claude Code plugin that analyzes sessions, configuration, and auto-memory to generate optimized rules, skills, hooks, agents, and reference docs. It manages context architecture as a living system.
+Noticed is a Claude Code plugin that analyzes sessions, configuration, and auto-memory to generate optimized rules, skills, hooks, agents, and reference docs. It manages context architecture as a living system.
 
-The plugin lives in `forge/` and is tested with `claude --plugin-dir ./forge`. After changes to skills, agents, or hooks, run `/reload-plugins` to pick up updates.
+The plugin lives in `noticed/` and is tested with `claude --plugin-dir ./noticed`. After changes to skills, agents, or hooks, run `/reload-plugins` to pick up updates.
 
 ## Architecture
 
-- **Skills** (`forge/skills/*/SKILL.md`): User-facing commands — `/forge` (unified analysis + review), `/forge:settings` (nudge frequency config), `/forge:version` (installed version and freshness check)
-- **Agents** (`forge/agents/*.md`): Subagents — `session-analyzer` (LLM quality gate + pattern detection)
-- **Scripts** (`forge/scripts/*.py`): Analysis and lifecycle — `analyze-config.py`, `analyze-transcripts.py`, `analyze-memory.py` (Phase A analyzers), `build-proposals.py` (proposal pipeline + effectiveness tracking), `cache-manager.py` (caching + orchestration), `project_identity.py` (project hash, user/project data dirs, find_project_root), `check-pending.py`, `background-analyze.py` (SessionStart hooks), `log-session.sh`, `finalize-proposals.py` (bookkeeping + tracking data), `format-proposals.py` (presentation formatting), `validate-paths.py` (path security validation), `merge-settings.py` (atomic settings.json hook merging), `read-settings.py`, `write-settings.py` (utilities)
-- **Hooks** (`forge/hooks/hooks.json`): SessionStart (pending check + background analysis), SessionEnd (session logging + cache update)
-- **References** (`forge/references/*.md`): Templates and best practices used during artifact generation
+- **Skills** (`noticed/skills/*/SKILL.md`): User-facing commands — `/noticed` (unified analysis + review), `/noticed:settings` (nudge frequency config), `/noticed:version` (installed version and freshness check)
+- **Agents** (`noticed/agents/*.md`): Subagents — `session-analyzer` (LLM quality gate + pattern detection)
+- **Scripts** (`noticed/scripts/*.py`): Analysis and lifecycle — `analyze-config.py`, `analyze-transcripts.py`, `analyze-memory.py` (Phase A analyzers), `build-proposals.py` (proposal pipeline + effectiveness tracking), `cache-manager.py` (caching + orchestration), `project_identity.py` (project hash, user/project data dirs, find_project_root), `check-pending.py`, `background-analyze.py` (SessionStart hooks), `log-session.sh`, `finalize-proposals.py` (bookkeeping + tracking data), `format-proposals.py` (presentation formatting), `validate-paths.py` (path security validation), `merge-settings.py` (atomic settings.json hook merging), `read-settings.py`, `write-settings.py` (utilities)
+- **Hooks** (`noticed/hooks/hooks.json`): SessionStart (pending check + background analysis), SessionEnd (session logging + cache update)
+- **References** (`noticed/references/*.md`): Templates and best practices used during artifact generation
 
 ## Key Constraints
 
-- **Security is non-negotiable.** Forge must never delete user code, write outside `.claude/`/`CLAUDE.md`, or introduce vulnerabilities. All writes go through user approval. See `.claude/rules/security.md` for the full security policy.
+- **Security is non-negotiable.** Noticed must never delete user code, write outside `.claude/`/`CLAUDE.md`, or introduce vulnerabilities. All writes go through user approval. See `.claude/rules/security.md` for the full security policy.
 - Python scripts use only the standard library (no pip dependencies). Must work on Python 3.8+.
-- Subagents use `model: sonnet` and `effort: low` to minimize token cost. Every token Forge consumes comes from the user's quota.
+- Subagents use `model: sonnet` and `effort: low` to minimize token cost. Every token Noticed consumes comes from the user's quota.
 - The plugin never interrupts mid-task. All analysis is retroactive.
 - Generated skills and agents are drafts. CLAUDE.md entries, rules, and hooks are typically production-ready.
 - Session transcript JSONL format is not a stable API — parser must handle format variations gracefully.
-- **Analysis scope is per-project.** All pattern detection is scoped to the current project and its worktrees. Forge never reads transcripts from unrelated projects. Cross-project aggregation is a future opt-in feature only.
-- **Artifacts default to project-level.** All generated artifacts go to `.claude/` (project-level), never `~/.claude/` (user-level). The user can override during review. Forge never suggests user-level on its own.
-- **Storage split.** Feedback data that shapes proposals (dismissed.json, history/applied.json, feedback_signals.json) lives in `.claude/forge/` (project-level, git-tracked, shared across contributors). Personal settings, caches, pending proposals, and session logs live in `~/.claude/forge/projects/<hash>/` (user-level, per-machine).
+- **Analysis scope is per-project.** All pattern detection is scoped to the current project and its worktrees. Noticed never reads transcripts from unrelated projects. Cross-project aggregation is a future opt-in feature only.
+- **Artifacts default to project-level.** All generated artifacts go to `.claude/` (project-level), never `~/.claude/` (user-level). The user can override during review. Noticed never suggests user-level on its own.
+- **Storage split.** Feedback data that shapes proposals (dismissed.json, history/applied.json, feedback_signals.json) lives in `.claude/noticed/` (project-level, git-tracked, shared across contributors). Personal settings, caches, pending proposals, and session logs live in `~/.claude/noticed/projects/<hash>/` (user-level, per-machine).
 
 ## Code Style
 
@@ -55,12 +55,12 @@ All project documentation lives in `core-docs/`. Review and update these as part
 
 ## Development Infrastructure
 
-**Important:** The plugin ships from `forge/`. The dev infrastructure in `.claude/` is for *us* when working on Forge. These are completely separate.
+**Important:** The plugin ships from `noticed/`. The dev infrastructure in `.claude/` is for *us* when working on Noticed. These are completely separate.
 
 | What | Plugin (ships to users) | Dev (our tools) |
 |------|------------------------|-----------------|
-| Skills | `forge/skills/` (`/forge`, `/forge:settings`, `/forge:version`) | `.claude/skills/` (`/ship`, `/audit`) |
-| Agents | `forge/agents/` (`session-analyzer`) | `.claude/agents/` (`planner`, `domain`, `testing`, `docs`) |
+| Skills | `noticed/skills/` (`/noticed`, `/noticed:settings`, `/noticed:version`) | `.claude/skills/` (`/ship`, `/audit`) |
+| Agents | `noticed/agents/` (`session-analyzer`) | `.claude/agents/` (`planner`, `domain`, `testing`, `docs`) |
 | Rules | — | `.claude/rules/` (general, documentation, security, plugin-structure, python-scripts, skills-and-agents, testing) |
 
 Dev agents are invoked with `claude --agent <name>`. See `core-docs/workflow.md` for the standard workflow.
@@ -77,7 +77,7 @@ After running /audit, if all checks pass and the branch would merge cleanly, ope
 
 Before creating any PR, verify the following:
 
-- **Version bump.** If any file under `forge/` changed, bump the version in all three locations: `forge/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` `metadata.version`, and `.claude-plugin/marketplace.json` `plugins[0].version`.
+- **Version bump.** If any file under `noticed/` changed, bump the version in all three locations: `noticed/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` `metadata.version`, and `.claude-plugin/marketplace.json` `plugins[0].version`.
 - **Tests pass.** Run `python3 -m pytest tests/ -v` and confirm all tests pass. Do not create a PR with failing tests.
 - **CLAUDE.md is current.** If the change adds, removes, or renames skills, agents, scripts, hooks, or references, update the Architecture section of this file to match.
 - **Rules are current.** If the change introduces a new convention or constraint (e.g., a new required manifest field, a new security boundary), add or update the relevant rule in `.claude/rules/`.

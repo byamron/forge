@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
-PLUGIN_JSON = REPO_ROOT / "forge" / ".claude-plugin" / "plugin.json"
+PLUGIN_JSON = REPO_ROOT / "noticed" / ".claude-plugin" / "plugin.json"
 MARKETPLACE_JSON = REPO_ROOT / ".claude-plugin" / "marketplace.json"
 
 
@@ -47,6 +47,41 @@ class TestPluginJsonRequired:
         for agent_path in data["agents"]:
             resolved = PLUGIN_JSON.parent.parent / agent_path.lstrip("./")
             assert resolved.is_file(), f"agent path '{agent_path}' does not resolve to a file"
+
+
+class TestPluginName:
+    """Plugin name must be 'noticed' across all manifests.
+
+    Catches accidental reverts or typos that would break the marketplace
+    install flow and the SKILL.md plugin-root fallback (which keys on
+    'noticed@' prefix in installed_plugins.json).
+    """
+
+    def test_plugin_json_name(self):
+        data = _load_json(PLUGIN_JSON)
+        assert data["name"] == "noticed", (
+            f"plugin.json name is {data['name']!r}, expected 'noticed'"
+        )
+
+    def test_marketplace_top_level_name(self):
+        data = _load_json(MARKETPLACE_JSON)
+        assert data["name"] == "noticed", (
+            f"marketplace.json name is {data['name']!r}, expected 'noticed'"
+        )
+
+    def test_marketplace_plugin_entry_name(self):
+        data = _load_json(MARKETPLACE_JSON)
+        entry = data["plugins"][0]
+        assert entry["name"] == "noticed", (
+            f"marketplace.json plugins[0].name is {entry['name']!r}, expected 'noticed'"
+        )
+
+    def test_marketplace_plugin_source_points_to_noticed_dir(self):
+        data = _load_json(MARKETPLACE_JSON)
+        entry = data["plugins"][0]
+        assert entry["source"] == "./noticed", (
+            f"marketplace.json plugins[0].source is {entry['source']!r}, expected './noticed'"
+        )
 
 
 class TestVersionSync:

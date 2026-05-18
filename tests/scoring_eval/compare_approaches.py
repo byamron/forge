@@ -39,7 +39,7 @@ def load_labeled_pairs(label_dir: Path) -> List[Dict[str, Any]]:
 
 def _get_baseline_classifier():
     """Import the production classify_response."""
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "forge" / "scripts"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "noticed" / "scripts"))
     import importlib
     mod = importlib.import_module("analyze-transcripts")
     sys.path.pop(0)

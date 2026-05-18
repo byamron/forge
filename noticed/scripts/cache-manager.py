@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cache manager for Forge analysis results.
+"""Cache manager for Noticed analysis results.
 
 Provides two modes:
   --check:  Compare cached fingerprints against current file state.
@@ -7,7 +7,7 @@ Provides two modes:
   --update: Run stale analysis scripts and write fresh cache files.
             Called by the SessionEnd hook for background caching.
 
-Cache files live in ~/.claude/forge/projects/<hash>/cache/ and store:
+Cache files live in ~/.claude/noticed/projects/<hash>/cache/ and store:
   - The analysis result JSON
   - A fingerprint (mtime+size of all input files) for invalidation
 
@@ -135,7 +135,10 @@ def fingerprint_transcripts(root: Path) -> str:
 
     # Analyzer stats (feedback loop)
     home = Path.home()
-    stats_path = home / ".claude" / "forge" / "analyzer-stats.json"
+    stats_path = home / ".claude" / "noticed" / "analyzer-stats.json"
+    if not stats_path.is_file():
+        # Legacy location (pre-rename)
+        stats_path = home / ".claude" / "forge" / "analyzer-stats.json"
     stat = file_stat(stats_path)
     if stat:
         entries.append(f"analyzer-stats:{stat[0]}:{stat[1]}")
@@ -411,7 +414,9 @@ def _build_proposals_from_cache(root: Path,
         cmd.extend(["--feedback-signals", str(fs_path)])
     else:
         # Fall back to user-level analyzer-stats.json for legacy compat
-        stats_path = Path.home() / ".claude" / "forge" / "analyzer-stats.json"
+        stats_path = Path.home() / ".claude" / "noticed" / "analyzer-stats.json"
+        if not stats_path.is_file():
+            stats_path = Path.home() / ".claude" / "forge" / "analyzer-stats.json"
         if stats_path.is_file():
             cmd.extend(["--stats", str(stats_path)])
 
@@ -499,7 +504,7 @@ def _read_feedback_signals(root: Path) -> Optional[Dict[str, Any]]:
 def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, Any]:
     """Get proposals: use cached if available, otherwise build fresh.
 
-    This is the single entry point for /forge — returns ready-to-present
+    This is the single entry point for /noticed — returns ready-to-present
     proposals plus context health, with all analysis cached.
     """
     # First, ensure analysis cache is fresh
@@ -558,7 +563,7 @@ def get_proposals(root: Path, plugin_root: Optional[str] = None) -> Dict[str, An
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Forge cache manager")
+    parser = argparse.ArgumentParser(description="Noticed cache manager")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--check", action="store_true",
                        help="Check cache freshness, output status JSON")
@@ -600,7 +605,7 @@ def main():
         sys.stdout.write("\n")
     elif args.save_last_run:
         # Read filtered proposals from stdin and save for next-run comparison.
-        # Called by /forge after the quality filter so last-run.json reflects
+        # Called by /noticed after the quality filter so last-run.json reflects
         # what the user actually saw, not the unfiltered script output.
         try:
             raw = sys.stdin.read()

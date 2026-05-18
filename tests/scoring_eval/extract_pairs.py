@@ -21,7 +21,7 @@ from typing import List
 
 # Add scripts to path for imports — module has hyphens so we use importlib
 import importlib
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "forge" / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "noticed" / "scripts"))
 _at = importlib.import_module("analyze-transcripts")
 
 build_conversation_pairs = _at.build_conversation_pairs

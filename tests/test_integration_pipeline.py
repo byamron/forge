@@ -1,4 +1,4 @@
-"""Integration tests running the full Forge analysis pipeline on synthetic profiles.
+"""Integration tests running the full Noticed analysis pipeline on synthetic profiles.
 
 Each test class exercises a different project profile, verifying that the
 analysis scripts detect (or correctly filter) the expected signals and that
@@ -22,7 +22,7 @@ import pytest
 # Script imports (same pattern as existing unit tests)
 # ---------------------------------------------------------------------------
 
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "forge" / "scripts"
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "noticed" / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 _config_mod = importlib.import_module("analyze-config")
@@ -73,8 +73,8 @@ def load_sessions_from_profile(project_root: Path) -> dict:
 
 
 def load_stats_from_profile(project_root: Path) -> dict:
-    """Load analyzer stats from the profile's _forge_data/ directory."""
-    stats_path = project_root / "_forge_data" / "analyzer-stats.json"
+    """Load analyzer stats from the profile's _noticed_data/ directory."""
+    stats_path = project_root / "_noticed_data" / "analyzer-stats.json"
     if stats_path.is_file():
         return json.loads(stats_path.read_text())
     return {
@@ -88,8 +88,8 @@ def load_stats_from_profile(project_root: Path) -> dict:
 
 
 def load_dismissed_from_profile(project_root: Path) -> list:
-    """Load dismissed proposals from the profile's _forge_data/ directory."""
-    dismissed_path = project_root / "_forge_data" / "dismissed.json"
+    """Load dismissed proposals from the profile's _noticed_data/ directory."""
+    dismissed_path = project_root / "_noticed_data" / "dismissed.json"
     if dismissed_path.is_file():
         return json.loads(dismissed_path.read_text())
     return []

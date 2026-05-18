@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Update Forge settings.
+"""Update Noticed settings.
 
 Reads the existing settings file, applies the change, writes it back.
 Creates the file and directory if they don't exist.
@@ -20,14 +20,14 @@ from project_identity import find_project_root, get_user_data_dir
 VALID_LEVELS = ("quiet", "balanced", "eager")
 
 LEVEL_DESCRIPTIONS = {
-    "quiet": "No automatic nudges. Forge only runs when you invoke /forge.",
+    "quiet": "No automatic nudges. Noticed only runs when you invoke /noticed.",
     "balanced": "Nudge on session start after 5+ new unanalyzed sessions.",
     "eager": "Nudge on session start after 2+ new unanalyzed sessions.",
 }
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Update Forge settings.")
+    parser = argparse.ArgumentParser(description="Update Noticed settings.")
     parser.add_argument(
         "--nudge-level",
         choices=VALID_LEVELS,

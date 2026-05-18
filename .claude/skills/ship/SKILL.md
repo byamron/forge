@@ -17,10 +17,10 @@ You are running the ship workflow. Follow every step in order.
 - Run `git log --oneline main..HEAD` to see commits on this branch
 - If on `main`, create a new branch with a descriptive kebab-case name
 
-## 2. Check version bump (Forge-specific)
+## 2. Check version bump (Noticed-specific)
 
-If any file under `forge/` changed on this branch:
-- Verify the version was bumped in all three locations: `forge/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` `metadata.version`, and `.claude-plugin/marketplace.json` `plugins[0].version`.
+If any file under `noticed/` changed on this branch:
+- Verify the version was bumped in all three locations: `noticed/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` `metadata.version`, and `.claude-plugin/marketplace.json` `plugins[0].version`.
 - If not bumped, bump it now. See `.claude/rules/plugin-structure.md`.
 
 ## 3. Run tests

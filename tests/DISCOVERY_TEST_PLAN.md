@@ -10,9 +10,9 @@ this function — only unit tests for the helper functions it calls (`_encode_pa
 `_decode_project_dir`, `_strip_url_credentials`).
 
 A regression here has two failure modes:
-1. **Silent data loss** — Forge misses worktree transcript dirs and analyzes fewer sessions
+1. **Silent data loss** — Noticed misses worktree transcript dirs and analyzes fewer sessions
    than it should, producing weaker or missing proposals.
-2. **Cross-project leakage** — Forge includes transcript dirs from unrelated projects,
+2. **Cross-project leakage** — Noticed includes transcript dirs from unrelated projects,
    violating the security boundary (see `.claude/rules/security.md`).
 
 ## What to test
@@ -27,7 +27,7 @@ A regression here has two failure modes:
 - Verify all worktree dirs are found
 
 ### Strategy 3: Forward index (repo-index.json)
-- Create a `~/.claude/forge/repo-index.json` with the current remote URL mapped to dir names
+- Create a `~/.claude/noticed/repo-index.json` with the current remote URL mapped to dir names
 - Verify those dirs are included in results
 - Verify dirs for a DIFFERENT remote URL are NOT included
 

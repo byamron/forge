@@ -1,5 +1,5 @@
 ---
-path: "forge/scripts/**/*.py"
+path: "noticed/scripts/**/*.py"
 ---
 
 These are Phase A analysis scripts that run locally with zero LLM token cost. They must be fast (<2 seconds for config audit, <5 seconds for transcript scan).

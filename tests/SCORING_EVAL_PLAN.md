@@ -3,7 +3,7 @@
 ## Problem
 
 The correction classifier (`classify_response`) and theme clustering (`group_into_themes`)
-are the core intelligence of Forge's transcript analysis. They determine whether a user
+are the core intelligence of Noticed's transcript analysis. They determine whether a user
 message is a correction, how strong it is, and whether corrections cluster into actionable
 themes. Currently:
 
@@ -18,7 +18,7 @@ themes. Currently:
   intuition, not measured against labeled data.
 
 The risk: false positives (normal conversation classified as correction → noisy proposals)
-and false negatives (real corrections missed → Forge appears to do nothing useful).
+and false negatives (real corrections missed → Noticed appears to do nothing useful).
 
 ## Two-part approach
 
@@ -70,16 +70,16 @@ tests/scoring_eval/
 - **Correction precision:** Of pairs classified as corrective, what % are actually
   corrections? Target: >80%. Below 60% means noisy proposals.
 - **Correction recall:** Of actual corrections, what % are detected? Target: >70%.
-  Below 50% means Forge misses too many patterns.
+  Below 50% means Noticed misses too many patterns.
 - **Strength calibration:** For detected corrections, does `correction_strength`
   correlate with labeled severity? Plot strength vs. severity bucket.
 - **Confirmatory precision:** Are "looks good" / "thanks" messages correctly
   classified? False negatives here (confirmatory classified as corrective) are
   particularly bad — they generate proposals from positive feedback.
 
-### Part 2: Capture scoring diagnostics during real /forge runs
+### Part 2: Capture scoring diagnostics during real /noticed runs
 
-**Goal:** When running `/forge` on real projects, capture enough diagnostic data
+**Goal:** When running `/noticed` on real projects, capture enough diagnostic data
 to understand why specific proposals were (or weren't) generated, without requiring
 manual labeling.
 
@@ -89,8 +89,8 @@ The transcript analyzer already outputs structured data (correction themes with
 evidence, weighted scores, confidence levels). The gap is that this output is
 consumed by the skill and discarded. We need a way to persist it for review.
 
-1. **Scoring diagnostics file.** After each `/forge` run, the cache manager already
-   saves analysis results to `~/.claude/forge/projects/<hash>/cache/transcripts.cache.json`.
+1. **Scoring diagnostics file.** After each `/noticed` run, the cache manager already
+   saves analysis results to `~/.claude/noticed/projects/<hash>/cache/transcripts.cache.json`.
    This already contains the full correction themes with evidence, scores, and confidence.
    No new persistence needed — just need a way to review it.
 
@@ -101,7 +101,7 @@ consumed by the skill and discarded. We need a way to persist it for review.
    - Pairs that scored just below the threshold (near-misses)
    - Classification distribution across all pairs (what % corrective, confirmatory, etc.)
 
-   This gives a quick "why did Forge propose / not propose this?" view after any run.
+   This gives a quick "why did Noticed propose / not propose this?" view after any run.
 
 3. **Threshold sensitivity analysis.** The diagnostic script can also show what would
    change if thresholds were adjusted:
@@ -117,7 +117,7 @@ tests/scoring_eval/
 ```
 
 **Integration with real-world testing workflow:**
-After running `/forge` on a real project, the workflow becomes:
+After running `/noticed` on a real project, the workflow becomes:
 1. Note which proposals appeared and whether they were useful
 2. Run `python3 tests/scoring_eval/review_diagnostics.py --project-root .` to see
    the full scoring picture
@@ -146,6 +146,6 @@ as the labeled set grows.
 **Part 2 (diagnostic review):** ~1-2 hours. Mostly reading from existing cache
 files and formatting output. The cache structure is already well-defined.
 
-**When to do this:** After running `/forge` on 2-3 real projects (Active Work Item 1).
+**When to do this:** After running `/noticed` on 2-3 real projects (Active Work Item 1).
 You need real session data to extract pairs from. The evaluation infrastructure should
 exist before making any weight or threshold changes — otherwise you're tuning blind.

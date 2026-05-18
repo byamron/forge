@@ -1,5 +1,5 @@
 ---
-name: forge
+name: noticed
 description: >
   Analyze your Claude Code setup and apply improvements. Audits configuration
   health, detects workflow patterns from session history, and walks you through
@@ -11,7 +11,7 @@ context:
   - references/anthropic-best-practices.md
 ---
 
-You are running Forge, the Claude Code infrastructure optimizer. Follow these steps in order.
+You are running Noticed, the Claude Code infrastructure optimizer. Follow these steps in order.
 
 **Scope constraint:** All analysis is scoped to the current project. Do not read files from other projects under `~/.claude/projects/`. If the user asks you to, tell them what you're accessing.
 
@@ -20,15 +20,15 @@ You are running Forge, the Claude Code infrastructure optimizer. Follow these st
 Resolve the plugin root and read settings:
 
 ```bash
-FORGE_ROOT="${CLAUDE_PLUGIN_ROOT}"; if [ -z "$FORGE_ROOT" ]; then FORGE_ROOT=$(python3 -c "import json,pathlib; data=json.loads(pathlib.Path.home().joinpath('.claude/plugins/installed_plugins.json').read_text()); print(next((v[0]['installPath'] for k,v in data.get('plugins',{}).items() if k.startswith('forge@')), ''))" 2>/dev/null); fi; if [ -z "$FORGE_ROOT" ]; then echo 'ERROR: Could not locate Forge plugin'; exit 1; fi; echo "FORGE_ROOT=$FORGE_ROOT"; python3 "$FORGE_ROOT/scripts/read-settings.py"
+NOTICED_ROOT="${CLAUDE_PLUGIN_ROOT}"; if [ -z "$NOTICED_ROOT" ]; then NOTICED_ROOT=$(python3 -c "import json,pathlib; data=json.loads(pathlib.Path.home().joinpath('.claude/plugins/installed_plugins.json').read_text()); print(next((v[0]['installPath'] for k,v in data.get('plugins',{}).items() if k.startswith('noticed@')), ''))" 2>/dev/null); fi; if [ -z "$NOTICED_ROOT" ]; then echo 'ERROR: Could not locate Noticed plugin'; exit 1; fi; echo "NOTICED_ROOT=$NOTICED_ROOT"; python3 "$NOTICED_ROOT/scripts/read-settings.py"
 ```
 
-Save the `FORGE_ROOT=...` path. If unresolved, tell the user and stop.
+Save the `NOTICED_ROOT=...` path. If unresolved, tell the user and stop.
 
 ## Step 1: Get proposals
 
 ```bash
-python3 "<FORGE_ROOT>/scripts/cache-manager.py" --proposals --plugin-root "<FORGE_ROOT>"
+python3 "<NOTICED_ROOT>/scripts/cache-manager.py" --proposals --plugin-root "<NOTICED_ROOT>"
 ```
 
 Returns JSON with `proposals`, `context_health`, `conversation_pairs_sample`, `deep_analysis_cache`, `previous_proposals`, and `feedback_signals`.
@@ -45,9 +45,9 @@ Returns JSON with `proposals`, `context_health`, `conversation_pairs_sample`, `d
 After filtering, save the filtered proposal set for next-run comparison (so "what changed" reflects what the user actually reviewed, not unfiltered script output):
 
 ```bash
-python3 "<FORGE_ROOT>/scripts/cache-manager.py" --save-last-run <<'FORGE_EOF'
+python3 "<NOTICED_ROOT>/scripts/cache-manager.py" --save-last-run <<'NOTICED_EOF'
 <FILTERED_PROPOSALS_ARRAY>
-FORGE_EOF
+NOTICED_EOF
 ```
 
 ## Step 2: Format and present results
@@ -55,9 +55,9 @@ FORGE_EOF
 Pipe the proposals JSON through the formatter. Include `previous_proposals` and `feedback_signals` from Step 1 output alongside the filtered proposals, `context_health`, `safety_gate`, and `deep_analysis_cache`:
 
 ```bash
-python3 "<FORGE_ROOT>/scripts/format-proposals.py" <<'FORGE_EOF'
+python3 "<NOTICED_ROOT>/scripts/format-proposals.py" <<'NOTICED_EOF'
 <PROPOSALS_JSON>
-FORGE_EOF
+NOTICED_EOF
 ```
 
 The output is JSON with `health_table`, `proposal_cards`, `proposal_count`, `has_deep_cache`, `proposals`, `safety_flagged_ids`, `changes_summary`, and `calibration_notes`.
@@ -122,9 +122,9 @@ Artifact templates and best practices are in your context.
 ### 3a. Validate paths
 
 ```bash
-python3 "<FORGE_ROOT>/scripts/validate-paths.py" <<'FORGE_EOF'
+python3 "<NOTICED_ROOT>/scripts/validate-paths.py" <<'NOTICED_EOF'
 <ARRAY_OF_PROPOSALS_WITH_ID_AND_SUGGESTED_PATH>
-FORGE_EOF
+NOTICED_EOF
 ```
 
 Skip any proposal where `valid` is false and warn the user.
@@ -140,9 +140,9 @@ Write each type:
 - **Rules**: Write to `.claude/rules/<name>.md`
 - **Hooks**: Use the merge script:
   ```bash
-  python3 "<FORGE_ROOT>/scripts/merge-settings.py" --settings-path .claude/settings.json <<'FORGE_EOF'
+  python3 "<NOTICED_ROOT>/scripts/merge-settings.py" --settings-path .claude/settings.json <<'NOTICED_EOF'
   {"event": "PostToolUse", "matcher": "Write|Edit", "command": "...", "timeout": 10}
-  FORGE_EOF
+  NOTICED_EOF
   ```
 - **Skills**: Write to `.claude/skills/<name>/SKILL.md`
 - **Skill updates**: Edit existing file. Migrate legacy `.claude/commands/*.md` to skills format.
@@ -156,9 +156,9 @@ For **modified** proposals: ask what to change, adjust, preview, then ask for ap
 ## Step 4: Finalize
 
 ```bash
-python3 "<FORGE_ROOT>/scripts/finalize-proposals.py" --project-root "$(pwd)" <<'FORGE_EOF'
+python3 "<NOTICED_ROOT>/scripts/finalize-proposals.py" --project-root "$(pwd)" <<'NOTICED_EOF'
 <JSON>
-FORGE_EOF
+NOTICED_EOF
 ```
 
 Where `<JSON>` has `outcomes` and `all_proposals`. Each outcome has `{id, status, type}` plus optional fields: `reason` (for dismissed), `modification_type` (for modified-then-applied). Summarize: how many approved, skipped, dismissed. Remind user to test created artifacts.

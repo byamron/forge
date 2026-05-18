@@ -3,7 +3,7 @@
 
 Reads the JSON output from cache-manager.py --proposals on stdin and
 produces a JSON object with pre-formatted markdown tables for the
-/forge skill to display directly.
+/noticed skill to display directly.
 
 Usage:
     python3 cache-manager.py --proposals | python3 format-proposals.py

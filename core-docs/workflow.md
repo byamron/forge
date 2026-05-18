@@ -1,6 +1,6 @@
 # Workflow
 
-How to work with Claude and agents on Forge development.
+How to work with Claude and agents on Noticed development.
 
 ---
 
@@ -45,7 +45,7 @@ Use `/clear` between agent phases to keep context small.
 
 ## Important: Plugin vs Dev Infrastructure
 
-- **Plugin files** (`forge/skills/`, `forge/agents/`, `forge/scripts/`, `forge/hooks/`): These ship to users. Changes here require a version bump.
-- **Dev files** (`.claude/skills/`, `.claude/agents/`, `.claude/rules/`, `core-docs/`): These are for *us* when developing Forge. They are not part of the plugin.
+- **Plugin files** (`noticed/skills/`, `noticed/agents/`, `noticed/scripts/`, `noticed/hooks/`): These ship to users. Changes here require a version bump.
+- **Dev files** (`.claude/skills/`, `.claude/agents/`, `.claude/rules/`, `core-docs/`): These are for *us* when developing Noticed. They are not part of the plugin.
 
-Never confuse the two. A `/ship` skill in `.claude/skills/ship/` is our dev workflow tool. A `/forge` skill in `forge/skills/forge/` is the product.
+Never confuse the two. A `/ship` skill in `.claude/skills/ship/` is our dev workflow tool. A `/noticed` skill in `noticed/skills/noticed/` is the product.

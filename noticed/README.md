@@ -1,14 +1,14 @@
-# Forge
+# Noticed
 
-Infrastructure architect for Claude Code. Forge watches your sessions, detects patterns in how you work, and proposes infrastructure improvements — rules, hooks, skills, agents — that make Claude Code work better for your specific project. It learns from your feedback, so proposals get sharper over time.
+Infrastructure architect for Claude Code. Noticed watches your sessions, detects patterns in how you work, and proposes infrastructure improvements — rules, hooks, skills, agents — that make Claude Code work better for your specific project. It learns from your feedback, so proposals get sharper over time.
 
 ## Installation
 
-**Via marketplace (recommended):** In Claude Code, run `/plugins`, add `https://github.com/byamron/forge.git` as a marketplace, then install Forge.
+**Via marketplace (recommended):** In Claude Code, run `/plugins`, add `https://github.com/byamron/forge.git` as a marketplace, then install Noticed.
 
 **Local development:**
 ```bash
-claude --plugin-dir ./forge
+claude --plugin-dir ./noticed
 ```
 
 **Requirements:** Claude Code v2.1.59+, Python 3.8+
@@ -17,22 +17,22 @@ claude --plugin-dir ./forge
 
 | Command | What it does |
 |---------|-------------|
-| `/forge` | Review and apply infrastructure proposals |
-| `/forge:settings` | Configure nudge frequency and proactive proposals |
-| `/forge:version` | Check installed version |
+| `/noticed` | Review and apply infrastructure proposals |
+| `/noticed:settings` | Configure nudge frequency and proactive proposals |
+| `/noticed:version` | Check installed version |
 
 ## What to expect
 
 At **session start**, you'll see a one-line notification in the terminal:
 
-- `Forge has 3 proposals. Run /forge to review.` — when proposals are ready
-- `Forge: tracking 23 sessions for this project.` — when Forge is active but no proposals yet
+- `Noticed has 3 proposals. Run /noticed to review.` — when proposals are ready
+- `Noticed: tracking 23 sessions for this project.` — when Noticed is active but no proposals yet
 
-At **session end**, Forge logs the session and updates analysis caches. All of this is automatic — you never wait for it.
+At **session end**, Noticed logs the session and updates analysis caches. All of this is automatic — you never wait for it.
 
-### When you run `/forge`
+### When you run `/noticed`
 
-Results are instant — pre-computed in the background. On a new project, Forge analyzes synchronously (~30 seconds).
+Results are instant — pre-computed in the background. On a new project, Noticed analyzes synchronously (~30 seconds).
 
 You see, in order:
 
@@ -42,22 +42,22 @@ You see, in order:
 4. **Proposals** — ranked by impact, filtered by the LLM quality gate.
 5. **Review** — for each proposal:
    - **Approve** — generate the artifact, preview it, write it after your confirmation
-   - **Modify** — tell Forge what to change first
+   - **Modify** — tell Noticed what to change first
    - **Skip** — keep for next time (auto-dismissed after 3 skips)
    - **Never** — dismiss permanently with a reason (low impact, missing safety, already handled, not relevant)
 
-### How Forge learns
+### How Noticed learns
 
-| What you do | What Forge does next time |
+| What you do | What Noticed does next time |
 |---|---|
 | Dismiss for "low impact" | Deflates impact scores for that proposal type |
 | Dismiss for "missing safety" or add approval gates | Activates the safety gate — automation proposals flagged for review |
 | Skip 3 times | Auto-dismisses it |
 | Approve | Tracks whether the pattern stops appearing (effectiveness monitoring) |
 
-Feedback is stored in `.claude/forge/` (git-tracked) — teammates benefit from your calibration.
+Feedback is stored in `.claude/noticed/` (git-tracked) — teammates benefit from your calibration.
 
-## What Forge generates
+## What Noticed generates
 
 | Artifact | Location | Example |
 |----------|----------|---------|
@@ -71,7 +71,7 @@ Feedback is stored in `.claude/forge/` (git-tracked) — teammates benefit from 
 
 ## Settings
 
-Configure via `/forge:settings`:
+Configure via `/noticed:settings`:
 
 | Setting | Options | Default | What it controls |
 |---------|---------|---------|-----------------|
@@ -93,7 +93,7 @@ Cached proposals
     |
 Session start — terminal notification with proposal count
     |
-/forge — full review: approve, modify, skip, or dismiss with reason
+/noticed — full review: approve, modify, skip, or dismiss with reason
     |
 Feedback loop — calibrates impact scores, activates safety gates, tracks effectiveness
 ```
@@ -104,8 +104,8 @@ Feedback loop — calibrates impact scores, activates safety gates, tracks effec
 
 | Location | What | Shared? |
 |----------|------|---------|
-| `.claude/forge/` | Dismissed proposals, applied history, feedback signals | Yes (git-tracked, all contributors) |
-| `~/.claude/forge/projects/<hash>/` | Settings, analysis cache, pending proposals, session log | No (personal, per-machine) |
+| `.claude/noticed/` | Dismissed proposals, applied history, feedback signals | Yes (git-tracked, all contributors) |
+| `~/.claude/noticed/projects/<hash>/` | Settings, analysis cache, pending proposals, session log | No (personal, per-machine) |
 | `.claude/` | Generated artifacts (rules, skills, hooks, agents) | Yes (git-tracked) |
 
-All analysis is scoped to the current project. No data leaves your machine. Forge never reads source code, API keys, `.env` files, or credentials.
+All analysis is scoped to the current project. No data leaves your machine. Noticed never reads source code, API keys, `.env` files, or credentials.

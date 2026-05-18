@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "forge" / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "noticed" / "scripts"))
 cm = importlib.import_module("cache-manager")
 import project_identity as pi
 

@@ -1,7 +1,7 @@
 #!/bin/bash
-# Forge SessionEnd hook — logs session and updates repo index for cross-worktree tracking.
+# Noticed SessionEnd hook — logs session and updates repo index for cross-worktree tracking.
 # Reads hook input JSON from stdin, extracts session_id, appends to session log,
-# and updates ~/.claude/forge/repo-index.json so future analysis can find all
+# and updates ~/.claude/noticed/repo-index.json so future analysis can find all
 # worktrees/checkouts of the same repo.
 
 set -euo pipefail
@@ -33,7 +33,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 USER_DATA_DIR=$(python3 "$SCRIPT_DIR/project_identity.py" --project-root "$PROJECT_ROOT" 2>/dev/null || echo "")
 if [ -z "$USER_DATA_DIR" ]; then
   # Fallback: write to project-level (legacy location) if resolution fails
-  USER_DATA_DIR="$PROJECT_ROOT/.claude/forge"
+  USER_DATA_DIR="$PROJECT_ROOT/.claude/noticed"
 fi
 mkdir -p "$USER_DATA_DIR"
 
@@ -42,7 +42,7 @@ echo "$TIMESTAMP $SESSION_ID" >> "$USER_DATA_DIR/unanalyzed-sessions.log"
 
 # --- Update repo index for cross-worktree discovery ---
 # Maps git remote URL -> list of Claude Code project directory names.
-# Stored globally at ~/.claude/forge/repo-index.json.
+# Stored globally at ~/.claude/noticed/repo-index.json.
 
 REMOTE_URL=$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null || echo "")
 if [ -z "$REMOTE_URL" ]; then
@@ -55,14 +55,14 @@ PROJECT_DIR_NAME=$(echo "$PROJECT_ROOT" | tr '/' '-')
 # Update index atomically using python3 (handles JSON read-modify-write).
 # Pass values via environment variables to avoid shell injection through
 # crafted remote URLs or project paths containing quote characters.
-mkdir -p "$HOME/.claude/forge"
-FORGE_DIR_NAME="$PROJECT_DIR_NAME" FORGE_REMOTE_URL="$REMOTE_URL" python3 -c "
+mkdir -p "$HOME/.claude/noticed"
+NOTICED_DIR_NAME="$PROJECT_DIR_NAME" NOTICED_REMOTE_URL="$REMOTE_URL" python3 -c "
 import json, os, sys
 from pathlib import Path
 
-index_path = Path.home() / '.claude' / 'forge' / 'repo-index.json'
-dir_name = os.environ['FORGE_DIR_NAME']
-raw_remote = os.environ['FORGE_REMOTE_URL']
+index_path = Path.home() / '.claude' / 'noticed' / 'repo-index.json'
+dir_name = os.environ['NOTICED_DIR_NAME']
+raw_remote = os.environ['NOTICED_REMOTE_URL']
 
 # Strip credentials from remote URL before storing (e.g., https://token@github.com/...)
 from urllib.parse import urlparse, urlunparse
@@ -76,7 +76,9 @@ try:
 except Exception:
     remote = '<redacted-url>'
 
-# Load existing index
+# Load existing index. If the new file doesn't exist, fall back to the
+# pre-rename ~/.claude/forge/repo-index.json so prior cross-worktree
+# tracking is preserved through the Forge -> Noticed rename.
 index = {}
 if index_path.is_file():
     try:
@@ -84,6 +86,14 @@ if index_path.is_file():
             index = json.load(f)
     except (json.JSONDecodeError, OSError):
         pass
+else:
+    legacy_path = Path.home() / '.claude' / 'forge' / 'repo-index.json'
+    if legacy_path.is_file():
+        try:
+            with open(legacy_path) as f:
+                index = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
 
 # Add this directory to the remote's list (deduplicated)
 dirs = index.get(remote, [])

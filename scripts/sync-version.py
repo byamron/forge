@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sync version from plugin.json to marketplace.json.
 
-Source of truth: forge/.claude-plugin/plugin.json
+Source of truth: noticed/.claude-plugin/plugin.json
 Targets: .claude-plugin/marketplace.json (metadata.version + plugins[0].version)
 
 Used as a pre-commit hook to keep versions in sync.
@@ -28,7 +28,7 @@ def read_staged(path: str) -> Optional[str]:
 def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
 
-    plugin_rel = "forge/.claude-plugin/plugin.json"
+    plugin_rel = "noticed/.claude-plugin/plugin.json"
     marketplace_rel = ".claude-plugin/marketplace.json"
     marketplace_path = repo_root / marketplace_rel
 
@@ -57,7 +57,7 @@ def main() -> None:
         changed = True
 
     for p in marketplace.get("plugins", []):
-        if p.get("name") == "forge" and p.get("version") != version:
+        if p.get("name") == "noticed" and p.get("version") != version:
             p["version"] = version
             changed = True
 

@@ -28,10 +28,10 @@ You are auditing recent changes against project standards. This runs in an isola
 
 For each entry in `core-docs/feedback.md`, check if the recent changes violate any synthesized rules. Flag violations.
 
-## 4. Check version and manifest (if forge/ changed)
+## 4. Check version and manifest (if noticed/ changed)
 
-If any file under `forge/` changed:
-- Are all three version locations in sync? (`forge/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` metadata, `.claude-plugin/marketplace.json` plugin entry)
+If any file under `noticed/` changed:
+- Are all three version locations in sync? (`noticed/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` metadata, `.claude-plugin/marketplace.json` plugin entry)
 - Does the manifest list all skills and agents?
 
 ## 5. Check security compliance

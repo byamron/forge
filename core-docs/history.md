@@ -37,6 +37,83 @@ Use the `SAFETY` marker on any entry that modifies error handling, persistence, 
 
 ## Entries
 
+### Rename plugin: Forge → Noticed (v0.5.0)
+**Date:** 2026-05-16
+**Branch:** study-designer-noticed
+**Commit:** (this commit)
+
+**What was done:**
+Renamed the plugin from "Forge" to "Noticed". Version bumped to 0.5.0 (breaking change). All user-facing surfaces — marketplace name, plugin manifest, skill invocations (`/noticed`, `/noticed:settings`, `/noticed:version`), documentation, system messages, error strings — now reference Noticed. Plugin directory `forge/` renamed to `noticed/` via `git mv`. Skill directory `noticed/skills/forge/` renamed to `noticed/skills/noticed/`. Data directories `.claude/forge/` (project-shared) and `~/.claude/forge/projects/<hash>/` (user-personal) now read/write to `.claude/noticed/` and `~/.claude/noticed/projects/<hash>/` respectively.
+
+A migration helper (`_migrate_dir_once` in `noticed/scripts/project_identity.py`) copies legacy Forge data directories forward to their Noticed equivalents on first access. Migration is race-safe (copy to tmp, atomic rename) and non-destructive (legacy dirs left intact for user rollback). Two new test classes added: `TestPluginName` (4 tests) asserting manifest name across all three required locations, and `TestForgeToNoticedMigration` (6 tests) covering migration correctness, idempotency, race-safety, and the both-dirs-exist no-op case. Total test count: 528 (up from 518).
+
+**Why:**
+The plugin's positioning shifted. "Forge" framed the product as an active builder of infrastructure; "Noticed" frames it as a passive observer that surfaces what it sees. The shift came out of the Designer-Noticed research (see prior history entry P10-P14): Designer's framing of the same product surface as "the app noticed something" tested better as a mental model than "the app forges artifacts." The rename adopts that framing in Forge directly, since the underlying product behavior is the same.
+
+**Design decisions:**
+- **Migration via copy, not move.** Legacy `.claude/forge/` and `~/.claude/forge/projects/<hash>/` are left intact after migration so users can roll back or recover if anything goes wrong. The user can manually delete the legacy directories once they're confident. This is the same non-destructive pattern used in v0.2.5 and v0.3.6 storage migrations.
+- **No marketplace dual-entry.** Considered shipping both `forge` and `noticed` entries in `marketplace.json` for one or two releases. Rejected: install base is small (essentially internal); a single README "Upgrading from Forge" section suffices. The cruft of maintaining two manifest entries persists; the dev cost of a one-time README note is zero.
+- **No slash-command compat shim.** Considered keeping `/forge` as a stub that says "renamed to /noticed". Rejected: permanent cruft for marginal benefit. Users adapt faster to a hard rename than to a redirect.
+- **GitHub repository URL left as `github.com/byamron/forge`.** Renaming the repo is a separate concern (changes URLs, breaks bookmarks, requires GitHub redirect setup). Out of scope for this PR. README and PR description call this out explicitly.
+- **Historical content preserved.** `core-docs/history.md` entries untouched. `core-docs/spec.md` and `core-docs/roadmap.md` keep their body content as historical artifact with a one-line rename note prepended. The product was named Forge when those docs were written; rewriting them would erase context that informs future decisions.
+- **Skill directory matches new plugin name.** `noticed/skills/noticed/SKILL.md` is the main skill, invoked as `/noticed`. Sub-skill directories (`settings/`, `version/`) keep their names; their invocations gain the new namespace prefix automatically (`/noticed:settings`, `/noticed:version`).
+
+**Technical decisions:**
+- **`_migrate_dir_once` uses copy-then-atomic-rename.** Copies the legacy tree to a sibling tmp directory (`<name>.migrating.<pid>`), then `os.rename` into place. Atomic on POSIX when the destination doesn't exist. If a concurrent SessionStart hook from a parallel Claude Code window wins the race, the losing process's `os.rename` fails with ENOTEMPTY/EEXIST and cleans up its tmp copy. Original version of the helper used `shutil.copytree(legacy, current)` directly — flagged by audit as race-unsafe.
+- **Both-dirs-exist case is a silent no-op, with `current` treated as canonical.** A user who ran old Forge and new Noticed in parallel will have both `.claude/forge/` and `.claude/noticed/` populated. Choosing automatically would risk data loss; surfacing a dialog requires UI we don't have. Documented in the helper's docstring; user can manually consolidate if they care.
+- **Plugin-root fallback in SKILL.md scripts** updated to key on `noticed@` prefix in `~/.claude/plugins/installed_plugins.json`. Primary path (`CLAUDE_PLUGIN_ROOT` env var) is unaffected; the fallback only matters when the env var is missing.
+- **`validate-paths.py` retains `.claude/forge/`** as an allowed write prefix for the migration window. Removed in a future release once we're confident no archived migration writes target it.
+- **`noticed/scripts/log-session.sh`** falls back to reading `~/.claude/forge/repo-index.json` when the new path doesn't exist, preserving cross-worktree session tracking through the rename.
+
+**Tradeoffs discussed:**
+- **Rename directory vs keep `forge/` and only change manifest names.** Rename chosen. Keeping `forge/` would leave a permanent dissonance between the product name and the source-tree directory. `${CLAUDE_PLUGIN_ROOT}` resolution makes the directory rename internally transparent at runtime; the only real cost is git-log discontinuity, mitigated by `git mv` preserving file history.
+- **Combine this rename with PR #49 vs ship as separate PR.** Combined. The user requested it "as part of these changes" — treating it as the same logical unit. PR is larger but the units are conceptually linked (the plan items P10-P14 reference "Noticed" terminology in their docstrings, which only makes sense after the rename).
+- **Bump to 0.5.0 vs 1.0.0.** Chose 0.5.0. This is breaking for users (skill invocation changes, data dir paths change), but the product surface is unchanged. 1.0.0 conventionally signals stability we haven't yet earned. 0.5.0 is the right "this is breaking but not a stability claim" version.
+
+**Lessons learned:**
+- A mechanical rename across 70+ files is genuinely tractable to delegate to a single subagent with clear preservation rules. The audit step caught race-safety in the migration code and missing manifest-name test assertions — both are exactly the kind of "everything compiles, nothing's wrong... except this one corner" issues a subagent's success report can mask. Audit-before-ship discipline matters more for big mechanical PRs than for small ones.
+- The migration helper's race-safety bug was a textbook example of "obviously correct on a single-process read of the code, obviously wrong once you consider concurrency." The atomic-rename fix is small but required deliberate thought; the original `shutil.copytree(legacy, current)` was the kind of code that passes review and breaks in production once two users start Claude Code at the same time.
+
+---
+
+### P10-P14 plan + native-build possibilities doc (planning only)
+**Date:** 2026-05-16
+**Branch:** daegu-v2
+**Commit:** 5aa2088 (base — planning PR, no code changes)
+
+**What was done:**
+Added five new work items (P10-P14) to `core-docs/plan.md` and created `core-docs/native-build-possibilities.md`. The plan items transfer concrete architectural patterns from Designer-Noticed (a Forge-like learning layer prototyped natively inside the Designer app at `/Users/benyamron/dev/designer`). The native doc captures patterns that cannot be transferred without owning the runtime, as a reference for any future native port.
+
+**Why:**
+Designer changed direction and will not ship Designer-Noticed in its current form. The research that went into it surfaced concrete improvements applicable to Forge today, plus a category of capabilities only possible when the learning layer is native to the host app. Both deserved to be captured before the Designer codebase becomes inaccessible or stale.
+
+**Design decisions:**
+- **Split into immediately-actionable plan items (P10-P14) vs reference doc.** Plan items are scoped to the current plugin architecture and follow the existing P<N> format. The native doc is separate because it describes capabilities Forge cannot ship as a plugin — mixing it with active priorities would clutter the roadmap.
+- **P10 ranked HIGH; P11/P12 MEDIUM; P13 LOW-MEDIUM; P14 deferred indefinitely.** Synthesis boundaries (P10) are the single biggest UX leverage point and fix a verified bug (notification re-fires every SessionStart, confirmed in `check-pending.py` lines 141-153). Window-digest dedup (P11) and new proposal kinds (P12) are incremental quality wins. Signal events (P13) unlock future P8 work but have no immediate behavior change. The co-installation probe (P14) is unneeded unless Designer ships a learning layer — kept in the plan as deferred so future contributors don't re-discover the question.
+- **No-op for P14, not deletion.** Documented and parked rather than dropped, so the reasoning survives.
+- **P12 uses archive, not delete.** Initial draft proposed adding a `removal` proposal type that would `unlink()` stale files, requiring a third exception to the never-delete rule in `.claude/rules/security.md`. An audit pass flagged this as a substantive policy expansion (the existing two exceptions are narrow mechanical migrations of Forge-owned artifacts moving locations; a heuristic-driven removal is categorically different). Reframed as archival: approval moves the file to `.claude/forge/archive/` instead of deleting it. Structurally identical to the legacy-storage migration exception that's already permitted — no security rule expansion needed. Also better in itself: reversible, auditable, and users can choose when to actually delete the archive.
+
+**Technical decisions:**
+- **P10 boundary triggers chosen to match Designer's pattern:** new high-confidence proposals, N new sessions (default 5), first-of-day per UTC date, effectiveness alerts. The first three are Designer-equivalent; the fourth is Forge-specific because Forge has effectiveness tracking that Designer doesn't.
+- **P10 acknowledges a behavior change for `nudge_level: "balanced"` users.** Today (verified in `check-pending.py` lines 141-153) those users see a proposal notification on every SessionStart when pending > 0. Post-P10 they see one only when a boundary is crossed. Users who prefer current behavior set `nudge_level: "eager"`. Called out as a "Behavior change for existing users" callout in the P10 priority blurb so reviewers don't miss it.
+- **P11 digest uses SHA-1 truncated to 12 chars and includes the builder name in the input.** SHA-1 is fine for non-cryptographic dedup; 12 chars give ~10^14 collision space, well above any realistic proposal volume. Including builder name prevents semantic-but-different proposals (e.g., memory vs corrections) from collapsing.
+- **P11 explicitly defers cross-run dedup-by-digest.** P0a fixed the applied-ID filter for ID-stable proposals. P11 introduces a digest field on each proposal but its dedup operates within a single run only — cross-run dedup against applied/dismissed continues to key on `id`. This is called out as a "Non-goals" section under P11 so reviewers know that renaming a builder so its proposals get different IDs (but same digest) can re-open the duplicate-after-applied bug for that builder's outputs.
+- **P12 archive flow is copy-then-delete with fsync between.** Order matters for crash safety: an interrupted archive leaves the source file intact. Tests explicitly cover the "interrupted run leaves source intact" case.
+- **P13 uses append-only JSONL, not SQLite.** Keeps the dependency profile to standard library only (per `.claude/rules/python-scripts.md`). Rotation at 5MB. The native build doc notes that an event-sourced runtime would standardize on SQLite-WAL or LMDB; for a plugin, JSONL is the right cost-benefit point.
+
+**Tradeoffs discussed:**
+- **Do P10 inside `check-pending.py` vs a new `surface-decision.py` script.** Chose inside `check-pending.py` to stay within the surface-area constraint from the current plan ("P0-P7 adds 1 new script, everything else modifies existing files"). Same constraint extended to P10-P13. P12 requires no new scripts; only P14 (deferred) would.
+- **Include or exclude the native-build doc from the plan PR.** Included because the doc is the natural home for "we considered building this but didn't" decisions — splitting it into a separate PR would lose the link between the rejected work and its rationale.
+- **Archive vs delete for stale rules (P12).** Delete is simpler but requires expanding the destructive-operations rule and is irreversible. Archive uses an existing copy-then-delete pattern within the already-permitted `.claude/forge/` write boundary and is recoverable by the user. Chose archive because: (a) sidesteps a substantive security-policy change, (b) Forge-recommended actions should err on the side of reversibility, (c) the user can still delete the archive directory manually if they want zero retention.
+- **Overload `nudge_level` for P10's boundary gate vs add a dedicated setting.** Considered adding `surface_boundary: strict|relaxed|off` to avoid changing existing-user behavior on `nudge_level`. Rejected because P10 already adds two boundary-tuning settings (`surface_boundary_sessions`, `surface_boundary_daily`); a third top-level toggle is more config surface area than the win justifies. `nudge_level: "eager"` becomes the explicit escape hatch for the old behavior, with the migration callout in P10's blurb.
+
+**Lessons learned:**
+- The most transferable architectural ideas from a project that doesn't ship are often the ones that decouple two concerns the constrained version had to entangle. Designer's split of detection from synthesis is valuable in Forge even without Designer's event store — the plumbing differs, the principle doesn't.
+- Native-only capabilities are still worth documenting. Future contributors deciding "should we re-platform this" need a catalog of what's possible at the other side of the boundary, otherwise the decision happens by drift rather than analysis.
+- An audit pass before shipping caught the security-rule expansion that would have been buried in P12 implementation. The audit also caught a sloppy "nudge frequency setting feels meaningless" framing (there is no such setting). Both are reminders that planning docs need the same verification discipline as code.
+
+---
+
 ### P9 plan: Session health analysis (planning only)
 **Date:** 2026-05-10
 **Branch:** token-usage-proposals

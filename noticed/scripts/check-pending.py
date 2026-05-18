@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Check if Forge should nudge the user about pending proposals.
+"""Check if Noticed should nudge the user about pending proposals.
 
 Used by the SessionStart hook to provide ambient presence. Outputs a JSON
 object with a systemMessage field when there is something worth telling the
 user. Otherwise outputs nothing.
 
 The systemMessage is displayed directly in the Claude Code terminal UI as a
-startup notification line (e.g. "SessionStart/startup says: forge: ...").
+startup notification line (e.g. "SessionStart/startup says: noticed: ...").
 Messages should be concise and user-facing.
 
 Behavior depends on two settings:
@@ -37,7 +37,7 @@ NUDGE_LEVELS = {"quiet", "balanced", "eager"}
 # ---------------------------------------------------------------------------
 
 def load_settings(project_root: Path) -> Dict[str, Any]:
-    """Load all Forge settings, returning defaults for missing keys."""
+    """Load all Noticed settings, returning defaults for missing keys."""
     defaults = {
         "nudge_level": "balanced",
         "proactive_proposals": True,
@@ -64,7 +64,7 @@ def load_settings(project_root: Path) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def count_total_sessions(user_data_dir: Path) -> int:
-    """Count total sessions Forge has tracked (analyzed + unanalyzed)."""
+    """Count total sessions Noticed has tracked (analyzed + unanalyzed)."""
     log_path = user_data_dir / "unanalyzed-sessions.log"
     unanalyzed = 0
     if log_path.is_file():
@@ -146,19 +146,19 @@ def main():
         pending_count = len(load_pending_proposals(root))
         if pending_count > 0:
             if pending_count == 1:
-                message = "Forge has 1 proposal. Run `/forge` to review."
+                message = "Noticed has 1 proposal. Run `/noticed` to review."
             else:
-                message = "Forge has {} proposals. Run `/forge` to review.".format(
+                message = "Noticed has {} proposals. Run `/noticed` to review.".format(
                     pending_count
                 )
 
     # --- Priority 2: Ambient health signal ---
-    # When no proposals to show but Forge is tracking sessions, show a brief
+    # When no proposals to show but Noticed is tracking sessions, show a brief
     # status. Suppressed in quiet mode.
     if message is None and nudge_level != "quiet":
         total_sessions = count_total_sessions(user_data_dir)
         if total_sessions > 0:
-            message = "Forge: tracking {} session{} for this project.".format(
+            message = "Noticed: tracking {} session{} for this project.".format(
                 total_sessions,
                 "s" if total_sessions != 1 else "",
             )
